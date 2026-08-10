@@ -90,7 +90,7 @@
 
     currentAssignmentId = id;
     $('assignmentList').style.display = 'none';
-    $('examView').style.display = 'block';
+    $('examView').style.display = 'flex';
     $('examTitle').textContent = data.assignment.title;
 
     if (data.readOnly) {

@@ -137,8 +137,24 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 
-.exam-editor-wrap { display: flex; flex-direction: column; height: calc(100vh - 110px); }
-.editor-header { padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+/* The header's own height is taken out of the 100vh automatically by flexbox (flex-direction:
+   column + .split's flex:1 below), so no manual subtraction is needed here. */
+.exam-editor-wrap { display: flex; flex-direction: column; height: 100vh; }
+.editor-header {
+  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  /* Belt-and-suspenders: even if something ever makes this page scrollable (e.g. a very
+     small/mobile viewport), the header — and the Submit button in it — stays pinned in view
+     instead of scrolling away. */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
 .split { flex: 1; display: flex; min-height: 0; }
 .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .pane-header { padding: 8px 14px; background: var(--panel); font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
