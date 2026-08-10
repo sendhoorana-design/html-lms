@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>HTML LMS — Login</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+<div class="center-screen">
+  <form class="card login-card" id="loginForm">
+    <h1>HTML LMS</h1>
+    <p class="sub">Sign in to continue</p>
+
+    <label for="username">Username</label>
+    <input id="username" name="username" autocomplete="username" required />
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+    <div class="error-text" id="errorText"></div>
+
+    <button type="submit" style="width:100%; margin-top: 8px;">Sign in</button>
+  </form>
+</div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errorText = document.getElementById('errorText');
+  errorText.textContent = '';
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errorText.textContent = data.error || 'Login failed';
+      return;
+    }
+    if (data.role === 'admin') {
+      window.location.href = '/admin.html';
+    } else {
+      window.location.href = '/student.html';
+    }
+  } catch (err) {
+    errorText.textContent = 'Could not reach server';
+  }
+});
+</script>
+</body>
+</html>

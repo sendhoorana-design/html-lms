@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>HTML LMS — Admin</title>
+<link rel="stylesheet" href="/css/style.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">HTML LMS — Admin</div>
+  <div class="right">
+    <span id="whoami"></span>
+    <button class="secondary" id="logoutBtn">Log out</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="monitor">Live Monitor</button>
+  <button class="tab-btn" data-tab="students">Students</button>
+  <button class="tab-btn" data-tab="exams">Exams</button>
+</div>
+
+<div class="container">
+
+  <!-- LIVE MONITOR -->
+  <div id="tab-monitor" class="tab-panel">
+    <div class="flex-between">
+      <h2>Live Monitor</h2>
+      <span class="muted" id="monitorUpdated"></span>
+    </div>
+    <table>
+      <thead><tr><th>Student</th><th>Exam</th><th>Status</th><th>Violations</th><th>Last activity</th><th></th></tr></thead>
+      <tbody id="monitorBody"></tbody>
+    </table>
+  </div>
+
+  <!-- STUDENTS -->
+  <div id="tab-students" class="tab-panel" style="display:none;">
+    <h2>Students</h2>
+    <div class="card" style="max-width:480px;">
+      <h3 style="margin-top:0;">Add student</h3>
+      <form id="addStudentForm">
+        <label>Full name</label>
+        <input id="s_fullname" required />
+        <label>Username</label>
+        <input id="s_username" required />
+        <label>Password</label>
+        <input id="s_password" type="password" required />
+        <button style="margin-top:16px;" type="submit">Create student</button>
+        <div class="error-text" id="studentError"></div>
+      </form>
+    </div>
+    <h3 class="mt-16">All students</h3>
+    <table>
+      <thead><tr><th>Name</th><th>Username</th><th>Created</th><th></th></tr></thead>
+      <tbody id="studentsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- EXAMS -->
+  <div id="tab-exams" class="tab-panel" style="display:none;">
+    <h2>Exams</h2>
+    <div class="card" style="max-width:640px;">
+      <h3 style="margin-top:0;">Create exam</h3>
+      <form id="addExamForm">
+        <label>Title</label>
+        <input id="e_title" required />
+        <label>Instructions</label>
+        <textarea id="e_instructions" rows="3"></textarea>
+        <label>Starter HTML code</label>
+        <textarea id="e_starter" rows="6"></textarea>
+        <div class="grid-2">
+          <div>
+            <label>Time limit (minutes)</label>
+            <input id="e_time" type="number" value="60" />
+          </div>
+          <div>
+            <label>Violation limit before lock</label>
+            <input id="e_vlimit" type="number" value="5" />
+          </div>
+        </div>
+        <button style="margin-top:16px;" type="submit">Create exam</button>
+        <div class="error-text" id="examError"></div>
+      </form>
+    </div>
+    <h3 class="mt-16">All exams</h3>
+    <table>
+      <thead><tr><th>Title</th><th>Time limit</th><th>Created</th><th></th></tr></thead>
+      <tbody id="examsBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- Assign modal -->
+<div id="assignModal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <h3 style="margin-top:0;">Assign exam to students</h3>
+    <div id="assignStudentList"></div>
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button id="assignConfirmBtn">Assign</button>
+      <button class="secondary" id="assignCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Submissions modal (all assignments for an exam, any status) -->
+<div id="submissionsModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width:70vw; max-width:800px;">
+    <div class="flex-between">
+      <h3 id="submissionsTitle" style="margin:0;">Submissions</h3>
+      <button class="secondary" id="submissionsCloseBtn">Close</button>
+    </div>
+    <table class="mt-16">
+      <thead><tr><th>Student</th><th>Status</th><th>Violations</th><th>Submitted</th><th></th></tr></thead>
+      <tbody id="submissionsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Assignment detail modal -->
+<div id="detailModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width:80vw; max-width:900px;">
+    <div class="flex-between">
+      <h3 id="detailTitle" style="margin:0;">Assignment detail</h3>
+      <button class="secondary" id="detailCloseBtn">Close</button>
+    </div>
+    <div class="grid-2 mt-16">
+      <div>
+        <h4>Submitted code</h4>
+        <textarea id="detailCode" style="height:300px;"></textarea>
+      </div>
+      <div>
+        <h4>Violation log</h4>
+        <div id="detailViolations" style="max-height:300px; overflow:auto; font-size:13px;"></div>
+      </div>
+    </div>
+    <div class="mt-16">
+      <button class="secondary" id="unlockBtn">Unlock exam</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="/js/admin.js"></script>
+</body>
+</html>

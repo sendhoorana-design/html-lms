@@ -1,0 +1,23 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy: push this repo to GitHub, then in Render choose "New +" -> "Blueprint" and point it
+# at the repo. Render reads this file and provisions the web service automatically.
+#
+# Data lives in MongoDB (Atlas), not on a local disk, so no persistent disk is needed here —
+# the free web service plan works fine. Create a free Atlas cluster first and paste its
+# connection string into MONGODB_URI when Render prompts for it (see README).
+services:
+  - type: web
+    name: html-lms
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /login.html
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false

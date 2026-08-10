@@ -1,0 +1,180 @@
+# HTML LMS — Proctored HTML Coding Platform
+
+A self-hosted LMS for teaching/testing HTML. Students write code in a left-pane editor and see a live-rendered
+output in the right pane, inside a proctored exam session. Admins create students and exams, assign exams to
+students, and watch a live monitoring dashboard that shows proctoring violations as they happen.
+
+## Stack
+
+- **Backend:** Node.js, Express, MongoDB (via Mongoose), JWT auth (httpOnly cookie), Socket.io for
+  real-time events
+- **Frontend:** Plain HTML/CSS/JS (no build step) + CodeMirror for the code editor, loaded from CDN
+- **Database:** MongoDB — either a local `mongod` for development, or a free MongoDB Atlas cluster for
+  anything shared or hosted
+
+## Requirements
+
+- Node.js 18 or newer. Check with `node -v`.
+- A MongoDB connection. Pick one:
+  - **Local (fastest for development):** `brew install mongodb-community` then `brew services start
+    mongodb-community`. No further config needed — the app defaults to `mongodb://127.0.0.1:27017/html_lms`.
+  - **Atlas (needed for anything beyond your own machine):** create a free cluster at
+    mongodb.com/cloud/atlas, add a database user, allow network access from your IP (or `0.0.0.0/0` for
+    simplicity while testing), and copy the connection string into `MONGODB_URI` in `.env`.
+
+## Setup
+
+```bash
+cd html-lms
+cp .env.example .env   # then edit .env if you're using Atlas instead of local MongoDB
+npm install
+npm run seed     # creates a default admin account
+npm start         # starts the server on http://localhost:4000
+```
+
+Default admin login (created by `npm run seed`):
+
+```
+username: admin
+password: admin123
+```
+
+**Change this password before real use** — easiest way is to create a new admin user directly in the database
+(there's no "create admin" UI on purpose, to avoid students self-promoting) and retire the seeded one, or edit
+the `users` collection directly with a new bcrypt hash.
+
+Open `http://localhost:4000/login.html` to sign in. Admins land on `/admin.html`, students on `/student.html`.
+
+## How it works
+
+**Admin flow:** Students tab → create student logins (each gets their own username/password). Exams tab →
+create an exam (title, instructions, starter HTML, time limit, violation limit) and assign it to one or more
+students. Live Monitor tab → shows every exam currently in progress, live violation counts, and last-activity
+timestamps, updated in real time over WebSockets. Click "View" on any row to see the student's live code and
+full violation log; locked exams can be unlocked from there.
+
+**Student flow:** Log in → see assigned exams → Start/Resume opens the exam in fullscreen. Left pane is the
+HTML code editor, right pane is a live-updating sandboxed `<iframe>` preview. Code autosaves ~800ms after
+each edit. Submit locks in the final code.
+
+## Retrieving code and output later
+
+Both the code and its rendered output can be pulled up again at any time, by either the admin or the
+specific student who wrote it — this isn't limited to while an exam is "live":
+
+- **Students** see a "View" button (instead of Start/Resume) on any exam that's `submitted` or `locked`.
+  It reopens the saved code read-only, alongside an output pane that re-renders it live, plus their own
+  proctoring log if the exam was locked.
+- **Admins** click "Submissions" next to any exam in the Exams tab to list every student assigned to it —
+  not-started, in-progress, submitted, or locked — and "View" any of them to see the current/final code,
+  a live-rendered output pane, and the full violation history.
+
+Output isn't stored as a separate file — it's a static re-render of the saved code. Since this is plain
+HTML/CSS/JS with no server-side execution, re-rendering the exact saved code always reproduces the exact
+same output, so there's nothing extra to keep in sync or go stale. (If you specifically need a frozen
+screenshot captured at the moment of submission — e.g. for exercises with animations or time-based JS —
+that's a separate feature; ask and it can be added, with `html2canvas` and some extra sandboxing care since
+it touches the same cross-origin boundary that keeps student code from reaching the rest of the app.)
+
+## Proctoring — what's actually enforced, and what isn't
+
+Browsers cannot give a web page control over the operating system, so a page **cannot literally prevent** a
+student from alt-tabbing to another application — no website can do that; that level of lockdown requires a
+dedicated native kiosk app (e.g. Safe Exam Browser) that takes over the whole OS session. What this LMS does
+instead, entirely from the browser:
+
+- **Forces fullscreen** at exam start; exiting fullscreen is immediately logged and blocks the student behind
+  a "return to fullscreen" prompt.
+- **Detects tab switches** via the Page Visibility API (`visibilitychange`).
+- **Detects leaving the browser window entirely** via the `blur` event — this fires both when switching tabs
+  *and* when switching to another application, so it's the closest browser-available signal to "switched
+  programs."
+- **Blocks and logs** right-click, copy, cut, and paste inside the editor.
+- **Blocks and logs** common DevTools shortcuts (F12, Ctrl/Cmd+Shift+I/J/C, Ctrl/Cmd+U). This is a deterrent,
+  not a real barrier — a determined student can still open DevTools another way — but the attempt is logged.
+- Every violation is written to the database and pushed instantly to the admin's Live Monitor over
+  Socket.io. Each exam has a configurable violation limit (default 5); hitting it **auto-locks** the exam
+  and the student is shown a "contact your administrator" screen until an admin unlocks it.
+
+If you need OS-level lockdown (blocking alt-tab, disabling other apps, blocking screenshots, etc.), that's a
+different category of tool — either a commercial lockdown browser (Safe Exam Browser, Respondus) pointed at
+this app's URL, or wrapping this frontend in an Electron kiosk app. Say the word if you want that built out.
+
+## Deploying beyond your local network (GitHub + Render + Atlas)
+
+Running `npm start` on your own Mac only serves the app on your machine/LAN. To make it reachable from
+anywhere (students at home, different networks, etc.), you need to host it on a server with a public
+address, and a database it's reachable from too. GitHub itself can't run this — GitHub Pages only serves
+static files, and this app needs a live Node.js process and a WebSocket connection. What GitHub *can* do is
+hold the source code and hand it to a host that runs Node apps. **Render** is the simplest option; paired
+with a free **MongoDB Atlas** cluster for the database, this whole setup can run at no cost.
+
+**1. Create a free MongoDB Atlas cluster**
+
+- Sign up at mongodb.com/cloud/atlas, create a free (M0) cluster.
+- Under **Database Access**, add a database user with a username/password.
+- Under **Network Access**, add an IP allowlist entry — `0.0.0.0/0` (allow from anywhere) is the simplest
+  option since Render's outbound IPs aren't fixed on the free plan.
+- Click **Connect** on your cluster → **Drivers** → copy the connection string (looks like
+  `mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/`). Fill in your password and add a database
+  name at the end, e.g. `.../html_lms?retryWrites=true&w=majority` — you'll paste this into Render next.
+
+**2. Push the code to GitHub**
+
+This project already has a git repo initialized with an initial commit (see `git log` inside the folder).
+Create an empty repo on github.com (no README/gitignore — just the empty repo), then from inside the
+`html-lms` folder:
+
+```bash
+git remote add origin https://github.com/<your-username>/<your-repo>.git
+git branch -M main
+git push -u origin main
+```
+
+**3. Deploy to Render**
+
+- Go to render.com, sign up/log in, and connect your GitHub account.
+- Click **New +** → **Blueprint**, and select the repo you just pushed. Render detects `render.yaml` in the
+  repo root and provisions the web service for you.
+- Render will prompt you for `MONGODB_URI` (marked `sync: false` in the blueprint so it isn't hardcoded in
+  git) — paste the Atlas connection string from step 1. `JWT_SECRET` is generated for you automatically.
+- Click **Apply**. First deploy takes a couple of minutes. No persistent disk is needed — data lives in
+  Atlas, not on Render's filesystem — so the free web service plan works.
+
+**4. Seed the admin account and go live**
+
+Render gives you a **Shell** tab on the service once it's deployed — open it and run:
+```bash
+npm run seed
+```
+Then visit the public URL Render gives you (something like `https://html-lms-xxxx.onrender.com/login.html`)
+and log in with `admin` / `admin123`. Change that password soon after (see the note in Setup above).
+
+**Updating later:** any `git push` to the connected branch triggers an automatic redeploy on Render. Since
+data lives in Atlas rather than on the Render instance, redeploys never touch student data.
+
+**Alternatives to Render:** Railway and Fly.io work similarly (connect a GitHub repo, they build and run
+it) and pair with Atlas the same way. A plain VPS (DigitalOcean, Lightsail) works too but needs more manual
+setup — SSH in, install Node, clone the repo, run it under a process manager like `pm2`, and put a reverse
+proxy (Caddy or nginx) in front for HTTPS.
+
+## Data model
+
+Four MongoDB collections (see `server/models/`):
+
+- `User` — admins and students, role-based, bcrypt-hashed passwords
+- `Exam` — title, instructions, starter code, time limit, violation limit
+- `ExamAssignment` — one document per (student, exam) pair; tracks status (`not_started` / `in_progress` /
+  `submitted` / `locked`), timestamps, **and the student's current/final code directly on the document** —
+  there's no separate "submissions" collection since it's always a strict 1:1 relationship
+- `Violation` — every proctoring event, referencing the assignment/student/exam, with type/detail/timestamp
+
+## Notes / next steps if you want to extend this
+
+- Currently one HTML/CSS/JS blob per exam (single editor pane). If you want separate HTML/CSS/JS tabs, the
+  editor and preview-building logic in `public/js/student.js` (`initEditor` / `updatePreview`) is the place
+  to extend.
+- No email/password-reset flow — admin sets student passwords directly.
+- No grading/rubric UI yet — admins currently review submitted code visually in the detail modal.
+- For production use: put this behind HTTPS, set a strong `JWT_SECRET` in `.env`, and consider rate-limiting
+  the login route.

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>HTML LMS — Student</title>
+<link rel="stylesheet" href="/css/style.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
+<style>
+  body { overflow: hidden; }
+</style>
+</head>
+<body>
+
+<div id="assignmentList" class="container" style="display:none;">
+  <div class="topbar">
+    <div class="brand">HTML LMS</div>
+    <div class="right">
+      <span id="whoami"></span>
+      <button class="secondary" id="logoutBtn">Log out</button>
+    </div>
+  </div>
+  <div class="container">
+    <h2>Your assignments</h2>
+    <table id="assignmentsTable">
+      <thead><tr><th>Exam</th><th>Status</th><th>Time limit</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="examView" style="display:none;">
+  <div class="editor-header">
+    <div>
+      <strong id="examTitle"></strong>
+      <span class="muted" id="examTimer" style="margin-left:14px;"></span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <span class="muted" id="readOnlyBanner" style="display:none;">Read-only</span>
+      <span class="muted" id="saveStatus">Saved</span>
+      <button class="secondary" id="backBtn">Back</button>
+      <button id="submitBtn">Submit</button>
+    </div>
+  </div>
+  <div class="split">
+    <div class="pane left">
+      <div class="pane-header">HTML — write your code</div>
+      <textarea id="codeArea"></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-header">Output preview</div>
+      <iframe id="preview" sandbox="allow-scripts"></iframe>
+    </div>
+    <div class="pane" id="violationsPane" style="display:none; flex: 0 0 280px; border-left: 1px solid var(--border);">
+      <div class="pane-header">Proctoring log</div>
+      <div id="studentViolationsList" style="overflow:auto; padding:10px; font-size:12px;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="lockOverlay" class="lock-overlay" style="display:none;">
+  <h2>⚠ Exam Locked</h2>
+  <p id="lockMessage">This exam has been locked due to repeated proctoring violations. Please contact your administrator.</p>
+  <button class="secondary mt-16" id="backFromLock">Back to assignments</button>
+</div>
+
+<div id="fullscreenPrompt" class="lock-overlay" style="display:none;">
+  <h2 style="color:var(--warn)">Fullscreen required</h2>
+  <p>This exam must be taken in fullscreen mode. Exiting fullscreen is logged as a proctoring violation.</p>
+  <button id="enterFullscreenBtn">Enter Fullscreen &amp; Continue</button>
+</div>
+
+<!-- Custom in-page confirm, used instead of the native confirm() dialog. Native dialogs cause
+     browsers to auto-exit fullscreen, which the proctoring code would then log as a violation. -->
+<div id="submitConfirmModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width:360px;">
+    <h3 style="margin-top:0;">Submit this exam?</h3>
+    <p class="muted">You won't be able to make further changes after this.</p>
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button id="confirmSubmitYes">Submit</button>
+      <button class="secondary" id="confirmSubmitNo">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="/js/student.js"></script>
+</body>
+</html>
