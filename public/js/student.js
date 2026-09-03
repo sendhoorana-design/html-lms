@@ -344,7 +344,10 @@
       paste: 'paste blocked',
       cut: 'cut blocked',
       right_click: 'right-click blocked',
-      devtools_attempt: 'developer tools shortcut blocked'
+      devtools_attempt: 'developer tools shortcut blocked',
+      reload_attempt: 'reload/refresh shortcut blocked',
+      back_button: 'back navigation blocked',
+      page_exit_attempt: 'tab closed, reloaded, or navigated away'
     }[type] || type;
   }
 
@@ -395,16 +398,51 @@
   function onKeyDown(e) {
     if (!proctoringActive) return;
     const key = e.key;
+    const isReload =
+      key === 'F5' ||
+      ((e.ctrlKey || e.metaKey) && !e.altKey && ['r', 'R'].includes(key));
     const blockedCombo =
       key === 'F12' ||
       (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(key)) ||
       (e.metaKey && e.altKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(key)) ||
       (e.ctrlKey && ['u', 'U'].includes(key)) ||
       (e.metaKey && ['u', 'U'].includes(key));
+
+    if (isReload) {
+      e.preventDefault();
+      logViolation('reload_attempt', `Blocked reload shortcut: ${key}`);
+      return;
+    }
     if (blockedCombo) {
       e.preventDefault();
       logViolation('devtools_attempt', `Blocked shortcut: ${key}`);
     }
+  }
+
+  // Back-button trap: keep re-pushing the current URL onto history so a back-navigation
+  // attempt lands right back on the exam instead of actually leaving it, and log it.
+  function onPopState() {
+    if (!proctoringActive) return;
+    history.pushState(null, '', location.href);
+    logViolation('back_button', 'Attempted to navigate back during exam');
+  }
+
+  // Last-resort capture for anything the handlers above can't stop — e.g. clicking the
+  // browser's own reload/back button in its UI chrome, which no webpage can ever intercept;
+  // that's a hard platform limit, not something fixable from JS. sendBeacon is used instead of
+  // fetch here because a normal fetch can get silently cancelled once the page starts
+  // unloading, while sendBeacon is specifically designed to still deliver the request.
+  function onBeforeUnload(e) {
+    if (!proctoringActive || !currentAssignmentId) return;
+    try {
+      const blob = new Blob(
+        [JSON.stringify({ type: 'page_exit_attempt', detail: 'Tab closed, reloaded, or navigated away' })],
+        { type: 'application/json' }
+      );
+      navigator.sendBeacon(`/api/student/assignments/${currentAssignmentId}/violation`, blob);
+    } catch (err) { /* best effort */ }
+    e.preventDefault();
+    e.returnValue = '';
   }
 
   $('enterFullscreenBtn').addEventListener('click', () => {
@@ -419,6 +457,9 @@
     document.addEventListener('fullscreenchange', onFullscreenChange);
     document.addEventListener('contextmenu', onContextMenu);
     document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('popstate', onPopState);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    history.pushState(null, '', location.href);
 
     if (document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {
@@ -442,6 +483,8 @@
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('contextmenu', onContextMenu);
     document.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('popstate', onPopState);
+    window.removeEventListener('beforeunload', onBeforeUnload);
     clearInterval(heartbeatTimer);
     clearInterval(timerInterval);
   }

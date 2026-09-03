@@ -111,13 +111,27 @@ instead, entirely from the browser:
 - **Blocks and logs** right-click, copy, cut, and paste inside the editor.
 - **Blocks and logs** common DevTools shortcuts (F12, Ctrl/Cmd+Shift+I/J/C, Ctrl/Cmd+U). This is a deterrent,
   not a real barrier — a determined student can still open DevTools another way — but the attempt is logged.
+- **Blocks and logs reload shortcuts** (Ctrl/Cmd+R, F5) via `preventDefault()` on the keydown event, so the
+  page doesn't actually reload.
+- **Traps the back button.** Uses the History API to immediately push the student back onto the exam page
+  the instant a back-navigation is detected (`popstate`), and logs it.
+- **Catches exits the above two can't stop**, as a last resort: closing the tab, using the browser's own
+  reload/back *button in its UI chrome* (not the keyboard shortcut), or quitting the browser. A page can
+  never intercept clicks on the browser's own toolbar — that's a hard platform boundary, not a bug — so
+  instead a `beforeunload` handler fires a `navigator.sendBeacon()` call (which, unlike a normal `fetch`,
+  is specifically designed to still get delivered even as the page is being torn down) to log the exit
+  attempt, and shows the browser's native "leave site?" confirmation as a speed bump.
 - Every violation is written to the database and pushed instantly to the admin's Live Monitor over
   Socket.io. Each exam has a configurable violation limit (default 5); hitting it **auto-locks** the exam
   and the student is shown a "contact your administrator" screen until an admin unlocks it.
 
-If you need OS-level lockdown (blocking alt-tab, disabling other apps, blocking screenshots, etc.), that's a
-different category of tool — either a commercial lockdown browser (Safe Exam Browser, Respondus) pointed at
-this app's URL, or wrapping this frontend in an Electron kiosk app. Say the word if you want that built out.
+**What's still not achievable from a webpage, and why:** a browser tab has no access to the operating
+system, so nothing here can literally prevent alt-tabbing to another application, block screenshots, or stop
+someone closing the laptop lid and using a second device — those require a dedicated native lockdown browser
+(Safe Exam Browser, Respondus) pointed at this app's URL, or wrapping this frontend in an Electron kiosk app
+that takes over the whole OS session. Every control above is a deterrent-plus-detection layer: it makes the
+easy, absent-minded ways of leaving an exam either blocked outright or immediately logged, which is what a
+browser-based tool can honestly promise. Say the word if you want the native-lockdown path built out.
 
 ## Deploying beyond your local network (GitHub + Render + Atlas)
 
