@@ -53,9 +53,25 @@
         <div class="error-text" id="studentError"></div>
       </form>
     </div>
+
+    <div class="card mt-16" style="max-width:480px;">
+      <h3 style="margin-top:0;">Import students from CSV</h3>
+      <p class="muted" style="margin-top:0; font-size:13px;">
+        Header row required: <code>username,password,full_name</code> (<code>full_name</code> is optional).
+        Everyone imported this way is required to set a new password the first time they log in.
+      </p>
+      <input type="file" id="csvFileInput" accept=".csv,text/csv" />
+      <div style="display:flex; gap:10px; margin-top:12px;">
+        <button id="csvImportBtn" disabled>Import</button>
+        <button class="secondary" id="csvSampleBtn" type="button">Download sample CSV</button>
+      </div>
+      <div class="error-text" id="csvError"></div>
+      <div id="csvResults" class="mt-16" style="font-size:13px; display:none;"></div>
+    </div>
+
     <h3 class="mt-16">All students</h3>
     <table>
-      <thead><tr><th>Name</th><th>Username</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Username</th><th>Password</th><th>Created</th><th></th></tr></thead>
       <tbody id="studentsBody"></tbody>
     </table>
   </div>

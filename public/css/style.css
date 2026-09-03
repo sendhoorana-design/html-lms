@@ -129,6 +129,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .badge.in_progress { background: rgba(91,124,250,0.15); color: var(--accent); }
 .badge.submitted { background: rgba(52,211,153,0.15); color: var(--accent-2); }
 .badge.locked { background: rgba(248,113,113,0.15); color: var(--danger); }
+.badge.pw_ok { background: #2a2f4a; color: var(--muted); }
+.badge.pw_pending { background: rgba(251,191,36,0.15); color: var(--warn); }
 
 .violation-count { font-weight: 700; }
 .violation-count.zero { color: var(--muted); }

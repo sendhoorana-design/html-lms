@@ -21,6 +21,7 @@ router.get('/students', asyncHandler(async (req, res) => {
     id: s._id.toString(),
     username: s.username,
     full_name: s.full_name,
+    must_change_password: !!s.must_change_password,
     created_at: s.created_at
   })));
 }));
@@ -35,6 +36,70 @@ router.post('/students', asyncHandler(async (req, res) => {
   const hash = bcrypt.hashSync(password, 10);
   const user = await User.create({ username, password_hash: hash, role: 'student', full_name: full_name || username });
   res.status(201).json({ id: user._id.toString(), username: user.username, full_name: user.full_name });
+}));
+
+// Bulk-create students from a CSV the admin uploaded. The file itself is parsed in the
+// browser (public/js/admin.js) and posted here as plain rows — keeps the server simple and
+// avoids adding a multipart-upload dependency for what's ultimately just short text rows.
+router.post('/students/import', asyncHandler(async (req, res) => {
+  const { students } = req.body;
+  if (!Array.isArray(students) || students.length === 0) {
+    return res.status(400).json({ error: 'No rows to import' });
+  }
+  if (students.length > 2000) {
+    return res.status(400).json({ error: 'Too many rows in one import (max 2000)' });
+  }
+
+  const results = { created: [], skipped: [], errors: [] };
+
+  for (let i = 0; i < students.length; i++) {
+    const row = students[i] || {};
+    const rowNum = i + 2; // +1 for 0-index, +1 for the header row
+    const username = (row.username || '').trim();
+    const password = (row.password || '').toString();
+    const full_name = (row.full_name || '').trim() || username;
+
+    if (!username || !password) {
+      results.errors.push({ row: rowNum, username, error: 'Missing username or password' });
+      continue;
+    }
+    if (password.length < 4) {
+      results.errors.push({ row: rowNum, username, error: 'Password too short (min 4 characters)' });
+      continue;
+    }
+
+    try {
+      const existing = await User.findOne({ username });
+      if (existing) {
+        results.skipped.push({ row: rowNum, username, reason: 'Username already exists' });
+        continue;
+      }
+      const hash = bcrypt.hashSync(password, 10);
+      const user = await User.create({
+        username,
+        password_hash: hash,
+        role: 'student',
+        full_name,
+        must_change_password: true
+      });
+      results.created.push({ row: rowNum, username, id: user._id.toString() });
+    } catch (e) {
+      results.errors.push({ row: rowNum, username, error: e.message });
+    }
+  }
+
+  res.json(results);
+}));
+
+// Force a student to set a new password next time they log in — for a compromised or
+// forgotten password, not just freshly-imported accounts.
+router.post('/students/:id/force-password-change', asyncHandler(async (req, res) => {
+  const result = await User.updateOne(
+    { _id: req.params.id, role: 'student' },
+    { $set: { must_change_password: true } }
+  );
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
 }));
 
 router.delete('/students/:id', asyncHandler(async (req, res) => {

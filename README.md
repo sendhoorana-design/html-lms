@@ -47,11 +47,30 @@ Open `http://localhost:4000/login.html` to sign in. Admins land on `/admin.html`
 
 ## How it works
 
-**Admin flow:** Students tab → create student logins (each gets their own username/password). Exams tab →
-create an exam (title, instructions, starter HTML, time limit, violation limit) and assign it to one or more
-students. Live Monitor tab → shows every exam currently in progress, live violation counts, and last-activity
-timestamps, updated in real time over WebSockets. Click "View" on any row to see the student's live code and
-full violation log; locked exams can be unlocked from there.
+**Admin flow:** Students tab → create student logins one at a time, or import many at once from a CSV (see
+below). Exams tab → create an exam (title, instructions, starter HTML, time limit, violation limit) and
+assign it to one or more students. Live Monitor tab → shows every exam currently in progress, live violation
+counts, and last-activity timestamps, updated in real time over WebSockets. Click "View" on any row to see
+the student's live code and full violation log; locked exams can be unlocked from there.
+
+## Bulk student creation via CSV, and forced password changes
+
+Under Students → **Import students from CSV**, upload a CSV with a header row of
+`username,password,full_name` (`full_name` is optional — a "Download sample CSV" button gives you a
+template). Each row becomes a student account. Every account created this way has
+**`must_change_password`** set, so the student is forced onto a "set a new password" screen the moment
+they log in with the temporary password from the CSV — they can't reach anything else in the app until
+they do (this is enforced on the server, not just hidden by the UI, so it can't be bypassed by calling the
+API directly).
+
+You can also force this for any individual student at any time — a **"Force change"** button appears next
+to each student in the Students table (except ones already pending a change) for cases like a forgotten or
+possibly-compromised password. If that student is mid-session when you do this, their very next action in
+the app will redirect them straight to the password-change screen instead of completing whatever they were
+doing.
+
+Students can also change their password voluntarily any time via the **"Change password"** button in their
+own top bar, without needing to be forced into it.
 
 **Student flow:** Log in → see assigned exams → Start/Resume opens the exam in fullscreen. Left pane is the
 HTML code editor, right pane is a live-updating sandboxed `<iframe>` preview. Code autosaves ~800ms after
@@ -162,7 +181,8 @@ proxy (Caddy or nginx) in front for HTTPS.
 
 Four MongoDB collections (see `server/models/`):
 
-- `User` — admins and students, role-based, bcrypt-hashed passwords
+- `User` — admins and students, role-based, bcrypt-hashed passwords, plus a `must_change_password` flag
+  used by CSV imports and the admin's "Force change" action
 - `Exam` — title, instructions, starter code, time limit, violation limit
 - `ExamAssignment` — one document per (student, exam) pair; tracks status (`not_started` / `in_progress` /
   `submitted` / `locked`), timestamps, **and the student's current/final code directly on the document** —

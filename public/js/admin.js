@@ -43,6 +43,7 @@
 
     $('addStudentForm').addEventListener('submit', onAddStudent);
     $('addExamForm').addEventListener('submit', onAddExam);
+    setupCsvImport();
     $('assignCancelBtn').addEventListener('click', () => $('assignModal').style.display = 'none');
     $('detailCloseBtn').addEventListener('click', () => $('detailModal').style.display = 'none');
     $('submissionsCloseBtn').addEventListener('click', () => $('submissionsModal').style.display = 'none');
@@ -78,8 +79,16 @@
       tr.innerHTML = `
         <td>${escapeHtml(s.full_name)}</td>
         <td>${escapeHtml(s.username)}</td>
+        <td>
+          ${s.must_change_password
+            ? '<span class="badge pw_pending">Must change</span>'
+            : '<span class="badge pw_ok">OK</span>'}
+        </td>
         <td>${escapeHtml((s.created_at || '').slice(0,16))}</td>
-        <td><button class="secondary danger-del" data-id="${s.id}">Remove</button></td>
+        <td>
+          ${s.must_change_password ? '' : `<button class="secondary force-pw" data-id="${s.id}">Force change</button>`}
+          <button class="secondary danger-del" data-id="${s.id}">Remove</button>
+        </td>
       `;
       tbody.appendChild(tr);
     }
@@ -90,6 +99,142 @@
         await loadStudents();
       });
     });
+    tbody.querySelectorAll('.force-pw').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Require this student to set a new password next time they log in?')) return;
+        await api(`/api/admin/students/${btn.dataset.id}/force-password-change`, { method: 'POST' });
+        await loadStudents();
+      });
+    });
+  }
+
+  // ---------------- CSV import ----------------
+
+  // Small CSV line parser that handles double-quoted fields (including embedded commas and
+  // escaped "" quotes) — enough for simple username/password/full_name rows without needing
+  // a library.
+  function parseCsvLine(line) {
+    const fields = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') { cur += '"'; i++; }
+          else { inQuotes = false; }
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        fields.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    fields.push(cur);
+    return fields.map((f) => f.trim());
+  }
+
+  function parseCsv(text) {
+    const lines = text.split(/\r\n|\n|\r/).filter((l) => l.trim().length > 0);
+    if (lines.length === 0) throw new Error('File is empty');
+
+    const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const usernameIdx = header.indexOf('username');
+    const passwordIdx = header.indexOf('password');
+    const fullNameIdx = header.indexOf('full_name');
+    if (usernameIdx === -1 || passwordIdx === -1) {
+      throw new Error('Header row must include "username" and "password" columns');
+    }
+
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const fields = parseCsvLine(lines[i]);
+      rows.push({
+        username: fields[usernameIdx] || '',
+        password: fields[passwordIdx] || '',
+        full_name: fullNameIdx !== -1 ? (fields[fullNameIdx] || '') : ''
+      });
+    }
+    return rows;
+  }
+
+  let pendingCsvRows = null;
+
+  function setupCsvImport() {
+    $('csvFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      $('csvError').textContent = '';
+      $('csvResults').style.display = 'none';
+      pendingCsvRows = null;
+      $('csvImportBtn').disabled = true;
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const rows = parseCsv(text);
+        if (rows.length === 0) throw new Error('No data rows found');
+        pendingCsvRows = rows;
+        $('csvImportBtn').disabled = false;
+        $('csvError').textContent = '';
+        $('csvError').style.color = 'var(--muted)';
+        $('csvError').textContent = `${rows.length} row(s) ready to import.`;
+      } catch (err) {
+        $('csvError').style.color = '';
+        $('csvError').textContent = err.message;
+      }
+    });
+
+    $('csvImportBtn').addEventListener('click', async () => {
+      if (!pendingCsvRows) return;
+      $('csvImportBtn').disabled = true;
+      $('csvError').textContent = '';
+      try {
+        const results = await api('/api/admin/students/import', {
+          method: 'POST',
+          body: JSON.stringify({ students: pendingCsvRows })
+        });
+        renderCsvResults(results);
+        pendingCsvRows = null;
+        $('csvFileInput').value = '';
+        await loadStudents();
+      } catch (err) {
+        $('csvError').style.color = '';
+        $('csvError').textContent = err.message;
+        $('csvImportBtn').disabled = false;
+      }
+    });
+
+    $('csvSampleBtn').addEventListener('click', () => {
+      const sample = 'username,password,full_name\njdoe,Temp1234,Jane Doe\nasmith,Temp5678,Alex Smith\n';
+      const blob = new Blob([sample], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'students-sample.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  function renderCsvResults(results) {
+    const el = $('csvResults');
+    el.style.display = 'block';
+    const parts = [];
+    parts.push(`<div><strong style="color:var(--accent-2)">${results.created.length} created</strong></div>`);
+    if (results.skipped.length) {
+      parts.push(`<div class="mt-16 muted">${results.skipped.length} skipped (already existed):</div>`);
+      parts.push('<div class="muted">' + results.skipped.map((s) => escapeHtml(s.username)).join(', ') + '</div>');
+    }
+    if (results.errors.length) {
+      parts.push(`<div class="mt-16" style="color:var(--danger)">${results.errors.length} error(s):</div>`);
+      parts.push('<div>' + results.errors.map((e) => `Row ${e.row} (${escapeHtml(e.username || '—')}): ${escapeHtml(e.error)}`).join('<br/>') + '</div>');
+    }
+    el.innerHTML = parts.join('');
   }
 
   async function onAddStudent(e) {

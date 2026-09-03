@@ -29,7 +29,13 @@ router.post('/login', asyncHandler(async (req, res) => {
     maxAge: 8 * 60 * 60 * 1000
   });
 
-  res.json({ id: user._id.toString(), username: user.username, role: user.role, full_name: user.full_name });
+  res.json({
+    id: user._id.toString(),
+    username: user.username,
+    role: user.role,
+    full_name: user.full_name,
+    must_change_password: !!user.must_change_password
+  });
 }));
 
 router.post('/logout', (req, res) => {
@@ -37,8 +43,19 @@ router.post('/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/me', authRequired, (req, res) => {
-  res.json(req.user);
-});
+// Re-reads the user from the database rather than trusting the JWT payload as-is, so a flag
+// like must_change_password (which an admin can flip mid-session) is always current instead
+// of stuck at whatever it was when the token was issued.
+router.get('/me', authRequired, asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user.id).lean();
+  if (!user) return res.status(401).json({ error: 'Not authenticated' });
+  res.json({
+    id: user._id.toString(),
+    username: user.username,
+    role: user.role,
+    full_name: user.full_name,
+    must_change_password: !!user.must_change_password
+  });
+}));
 
 module.exports = router;

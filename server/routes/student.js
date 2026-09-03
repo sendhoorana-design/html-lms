@@ -1,4 +1,6 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
+const User = require('../models/User');
 const ExamAssignment = require('../models/ExamAssignment');
 const Violation = require('../models/Violation');
 const { authRequired, requireRole } = require('../middleware/auth');
@@ -6,6 +8,40 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(authRequired, requireRole('student'));
+
+// Change password — required before doing anything else when must_change_password is set
+// (fresh CSV import, or an admin forcing a reset), but callable any time otherwise too.
+router.post('/change-password', asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password are required' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+
+  const user = await User.findById(req.user.id);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  if (!bcrypt.compareSync(currentPassword, user.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  user.password_hash = bcrypt.hashSync(newPassword, 10);
+  user.must_change_password = false;
+  await user.save();
+  res.json({ ok: true });
+}));
+
+// Server-side enforcement, not just a UI gate: block every other student route until a
+// forced/temporary password has actually been changed, so it can't be bypassed by calling
+// the API directly instead of going through the change-password screen.
+router.use(asyncHandler(async (req, res, next) => {
+  const user = await User.findById(req.user.id).select('must_change_password').lean();
+  if (user && user.must_change_password) {
+    return res.status(403).json({ error: 'You must set a new password before continuing', mustChangePassword: true });
+  }
+  next();
+}));
 
 // List all exams assigned to the logged-in student
 router.get('/assignments', asyncHandler(async (req, res) => {

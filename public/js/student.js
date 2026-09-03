@@ -22,6 +22,12 @@
       throw new Error('Not authenticated');
     }
     const data = await res.json().catch(() => ({}));
+    if (data && data.mustChangePassword && path !== '/api/student/change-password') {
+      // Caught mid-session — an admin forced a password reset while this student was already
+      // logged in. Interrupt whatever they were doing and put up the gate immediately.
+      openPasswordModal(true);
+      throw Object.assign(new Error(data.error || 'Password change required'), { status: res.status, data });
+    }
     if (!res.ok) throw Object.assign(new Error(data.error || 'Request failed'), { status: res.status, data });
     return data;
   }
@@ -37,10 +43,69 @@
       await api('/api/auth/logout', { method: 'POST' });
       window.location.href = '/login.html';
     });
+    $('changePasswordBtn').addEventListener('click', () => openPasswordModal(false));
+    $('passwordCancelBtn').addEventListener('click', () => closePasswordModal());
+    $('passwordForm').addEventListener('submit', onChangePasswordSubmit);
 
     socket = io({ withCredentials: true });
 
+    if (me.must_change_password) {
+      openPasswordModal(true);
+      return;
+    }
+
     await showAssignmentList();
+  }
+
+  let passwordModalForced = false;
+
+  function openPasswordModal(forced) {
+    passwordModalForced = forced;
+    $('passwordModalTitle').textContent = forced ? 'Set a new password' : 'Change your password';
+    $('passwordModalSubtitle').style.display = forced ? 'block' : 'none';
+    $('passwordCancelBtn').style.display = forced ? 'none' : 'inline-block';
+    $('passwordError').textContent = '';
+    $('passwordForm').reset();
+    $('passwordModal').style.display = 'flex';
+  }
+
+  function closePasswordModal() {
+    if (passwordModalForced) return; // not dismissable when required
+    $('passwordModal').style.display = 'none';
+  }
+
+  async function onChangePasswordSubmit(e) {
+    e.preventDefault();
+    const currentPassword = $('pw_current').value;
+    const newPassword = $('pw_new').value;
+    const confirmPassword = $('pw_confirm').value;
+    const errEl = $('passwordError');
+    errEl.textContent = '';
+
+    if (newPassword !== confirmPassword) {
+      errEl.textContent = 'New passwords do not match';
+      return;
+    }
+    if (newPassword.length < 6) {
+      errEl.textContent = 'New password must be at least 6 characters';
+      return;
+    }
+
+    try {
+      await api('/api/student/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const wasForced = passwordModalForced;
+      passwordModalForced = false;
+      $('passwordModal').style.display = 'none';
+      if (wasForced) {
+        me.must_change_password = false;
+        await showAssignmentList();
+      }
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
   }
 
   async function showAssignmentList() {

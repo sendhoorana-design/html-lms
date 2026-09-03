@@ -17,6 +17,7 @@
     <div class="brand">HTML LMS</div>
     <div class="right">
       <span id="whoami"></span>
+      <button class="secondary" id="changePasswordBtn">Change password</button>
       <button class="secondary" id="logoutBtn">Log out</button>
     </div>
   </div>
@@ -80,6 +81,31 @@
       <button id="confirmSubmitYes">Submit</button>
       <button class="secondary" id="confirmSubmitNo">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- Change password. Used two ways: as a blocking, non-dismissable gate right after login when
+     the account requires a password change (fresh CSV import, or admin-forced), and as an
+     optional action from the "Change password" button any other time. -->
+<div id="passwordModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width:380px;">
+    <h3 style="margin-top:0;" id="passwordModalTitle">Change your password</h3>
+    <p class="muted" id="passwordModalSubtitle" style="display:none;">
+      Your account requires a new password before you can continue.
+    </p>
+    <form id="passwordForm">
+      <label>Current password</label>
+      <input type="password" id="pw_current" required autocomplete="current-password" />
+      <label>New password</label>
+      <input type="password" id="pw_new" required autocomplete="new-password" minlength="6" />
+      <label>Confirm new password</label>
+      <input type="password" id="pw_confirm" required autocomplete="new-password" minlength="6" />
+      <div class="error-text" id="passwordError"></div>
+      <div style="display:flex; gap:10px; margin-top:16px;">
+        <button type="submit">Save new password</button>
+        <button class="secondary" type="button" id="passwordCancelBtn">Cancel</button>
+      </div>
+    </form>
   </div>
 </div>
 
