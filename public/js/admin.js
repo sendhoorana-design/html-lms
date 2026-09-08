@@ -44,6 +44,7 @@
     $('addStudentForm').addEventListener('submit', onAddStudent);
     $('addExamForm').addEventListener('submit', onAddExam);
     $('addCheckBtn').addEventListener('click', () => addCheckRow());
+    setupChecksBulkAdd();
     setupCsvImport();
     $('assignCancelBtn').addEventListener('click', () => $('assignModal').style.display = 'none');
     $('detailCloseBtn').addEventListener('click', () => $('detailModal').style.display = 'none');
@@ -360,6 +361,76 @@
     set('.chk-pattern', existing.pattern);
   }
 
+  // Parses the bulk-add textarea: one check per line, pipe-delimited
+  // "type|label|value|extra". Lets an admin paste a whole set of checks at once instead of
+  // clicking "+ Add single check" and filling in fields one by one.
+  function parseBulkChecksText(text) {
+    const lines = text.split(/\r\n|\n|\r/).map((l) => l.trim()).filter((l) => l.length > 0);
+    const parsed = [];
+    const errors = [];
+    const validTypes = ['selector_exists', 'text_contains', 'html_contains'];
+
+    lines.forEach((line, idx) => {
+      const lineNum = idx + 1;
+      const fields = line.split('|').map((f) => f.trim());
+      const [type, label, value, extra] = fields;
+
+      if (!type || !validTypes.includes(type)) {
+        errors.push(`Line ${lineNum}: type must be one of ${validTypes.join(', ')}`);
+        return;
+      }
+      if (!label) {
+        errors.push(`Line ${lineNum}: missing label`);
+        return;
+      }
+
+      const check = { type, label };
+      if (type === 'selector_exists') {
+        if (!value) { errors.push(`Line ${lineNum}: selector_exists needs a CSS selector`); return; }
+        check.selector = value;
+        check.min_count = parseInt(extra, 10) || 1;
+      } else if (type === 'text_contains') {
+        if (!value) { errors.push(`Line ${lineNum}: text_contains needs text`); return; }
+        check.text = value;
+        check.case_sensitive = (extra || '').toLowerCase() === 'case';
+      } else if (type === 'html_contains') {
+        if (!value) { errors.push(`Line ${lineNum}: html_contains needs a pattern`); return; }
+        check.pattern = value;
+      }
+      parsed.push(check);
+    });
+
+    return { parsed, errors };
+  }
+
+  function setupChecksBulkAdd() {
+    $('checksBulkAddBtn').addEventListener('click', () => {
+      const text = $('checksBulkInput').value;
+      const errEl = $('checksBulkError');
+      errEl.textContent = '';
+      errEl.style.color = '';
+
+      if (!text.trim()) {
+        errEl.textContent = 'Paste one or more check lines first.';
+        return;
+      }
+
+      const { parsed, errors } = parseBulkChecksText(text);
+      parsed.forEach((c) => addCheckRow(c));
+
+      if (parsed.length) $('checksBulkInput').value = '';
+
+      if (errors.length && parsed.length) {
+        errEl.textContent = `${parsed.length} check(s) added. ${errors.length} line(s) skipped — ${errors.join('; ')}`;
+      } else if (errors.length) {
+        errEl.textContent = `Nothing added — ${errors.join('; ')}`;
+      } else {
+        errEl.style.color = 'var(--muted)';
+        errEl.textContent = `${parsed.length} check(s) added below.`;
+      }
+    });
+  }
+
   function collectChecks() {
     return Array.from($('checksList').querySelectorAll('.check-row')).map((row) => {
       const type = row.querySelector('.chk-type').value;
@@ -395,6 +466,8 @@
       });
       $('addExamForm').reset();
       $('checksList').innerHTML = '';
+      $('checksBulkInput').value = '';
+      $('checksBulkError').textContent = '';
       await loadExams();
     } catch (err) {
       $('examError').textContent = err.message;
@@ -488,7 +561,9 @@
 
   async function openDetail(assignmentId) {
     const data = await api(`/api/admin/assignments/${assignmentId}`);
-    $('detailTitle').textContent = `${data.assignment.full_name} — ${data.assignment.exam_title}`;
+    $('detailTitle').textContent = data.assignment.exam_title;
+    $('detailStudent').innerHTML = `${escapeHtml(data.assignment.full_name)} <span class="muted">(${escapeHtml(data.assignment.username)})</span>`;
+    $('detailCodeStudent').textContent = `${data.assignment.full_name} — ${data.assignment.username}`;
 
     const textarea = $('detailCode');
     textarea.value = data.code;

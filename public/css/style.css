@@ -217,3 +217,31 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .muted { color: var(--muted); }
 .mt-16 { margin-top: 16px; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
+
+/* Mobile: stack the exam panes vertically (code on top, output below) instead of side by side.
+   The side panes (test results / proctoring log) use inline flex-basis styles set from JS, so
+   those need !important here to override them on small screens. */
+@media (max-width: 768px) {
+  .split {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .pane {
+    flex: none !important;
+    min-height: 260px;
+  }
+  .pane.left {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  #testResultsPane, #violationsPane {
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+    min-height: 160px;
+    max-height: 260px;
+  }
+  .editor-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

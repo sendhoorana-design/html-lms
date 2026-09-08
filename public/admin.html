@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>HTML LMS — Admin</title>
 <link rel="stylesheet" href="/css/style.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
@@ -103,8 +104,25 @@
         <p class="muted" style="margin-top:0; font-size:12px;">
           Each check runs automatically when a student submits. Score = % of checks passed.
         </p>
-        <div id="checksList"></div>
-        <button type="button" class="secondary" id="addCheckBtn" style="margin-top:8px;">+ Add check</button>
+
+        <div class="card" style="padding:14px; margin-top:4px;">
+          <label style="margin:0 0 4px;">Bulk add <span class="muted">(paste multiple checks at once)</span></label>
+          <p class="muted" style="margin-top:0; font-size:12px;">
+            One check per line: <code>type|label|value|extra</code> &mdash; type is
+            <code>selector_exists</code>, <code>text_contains</code>, or <code>html_contains</code>.
+            For <code>selector_exists</code>, value is the CSS selector and extra is the min count
+            (default 1). For <code>text_contains</code>, value is the text and extra is the word
+            <code>case</code> to make it case-sensitive. For <code>html_contains</code>, value is the
+            raw text to find in the source and extra is unused. Avoid using <code>|</code> inside your
+            own values.
+          </p>
+          <textarea id="checksBulkInput" rows="4" placeholder="selector_exists|Has a heading|h1|1&#10;text_contains|Contains welcome|Welcome&#10;html_contains|Has doctype|&lt;!DOCTYPE"></textarea>
+          <button type="button" class="secondary mt-16" id="checksBulkAddBtn">Add from text</button>
+          <div class="error-text" id="checksBulkError"></div>
+        </div>
+
+        <div id="checksList" class="mt-16"></div>
+        <button type="button" class="secondary" id="addCheckBtn" style="margin-top:8px;">+ Add single check</button>
 
         <button style="margin-top:16px; display:block;" type="submit">Create exam</button>
         <div class="error-text" id="examError"></div>
@@ -149,13 +167,19 @@
 <div id="detailModal" class="modal-backdrop" style="display:none;">
   <div class="modal" style="width:80vw; max-width:900px;">
     <div class="flex-between">
-      <h3 id="detailTitle" style="margin:0;">Assignment detail</h3>
+      <div>
+        <h3 id="detailTitle" style="margin:0;">Assignment detail</h3>
+        <p id="detailStudent" style="margin:4px 0 0; font-size:14px;"></p>
+      </div>
       <button class="secondary" id="detailCloseBtn">Close</button>
     </div>
     <div class="grid-2 mt-16">
       <div>
-        <h4>Submitted code</h4>
-        <textarea id="detailCode" style="height:300px;"></textarea>
+        <h4 class="flex-between" style="margin:0;">
+          <span>Submitted code</span>
+          <span class="muted" id="detailCodeStudent" style="font-size:12px; font-weight:400;"></span>
+        </h4>
+        <textarea id="detailCode" style="height:300px; margin-top:8px;"></textarea>
       </div>
       <div>
         <h4>Violation log</h4>

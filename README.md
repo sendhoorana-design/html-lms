@@ -108,6 +108,11 @@ Create Exam form. Each check is one of:
   submitted (useful for checking for things like `<!DOCTYPE html>` or a specific attribute that produces no
   visible text).
 
+Checks can also be added in bulk instead of one at a time — the **"Bulk add"** box above the check list
+takes one check per line in the form `type|label|value|extra` (e.g.
+`selector_exists|Has a heading|h1|1` or `text_contains|Contains welcome|Welcome|case`), and adding it
+populates the same rows below, which can still be edited or removed individually afterward.
+
 Checks run automatically, server-side, the moment a student submits — using Cheerio to parse the submitted
 HTML statically (no JavaScript execution, so this is safe to run without any sandboxing concerns). The score
 is simply the percentage of checks passed. Both the per-check pass/fail with a short explanation, and the
