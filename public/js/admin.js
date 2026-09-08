@@ -43,6 +43,7 @@
 
     $('addStudentForm').addEventListener('submit', onAddStudent);
     $('addExamForm').addEventListener('submit', onAddExam);
+    $('addCheckBtn').addEventListener('click', () => addCheckRow());
     setupCsvImport();
     $('assignCancelBtn').addEventListener('click', () => $('assignModal').style.display = 'none');
     $('detailCloseBtn').addEventListener('click', () => $('detailModal').style.display = 'none');
@@ -291,6 +292,92 @@
     });
   }
 
+  // ---------------- Auto-grading checks builder (Create Exam form) ----------------
+
+  let checkRowSeq = 0;
+
+  function checkRowFieldsHtml(type) {
+    if (type === 'selector_exists') {
+      return `
+        <input type="text" class="chk-selector" placeholder="CSS selector, e.g. h1 or table tr" />
+        <label class="muted" style="margin:0; white-space:nowrap;">min count</label>
+        <input type="number" class="chk-min-count" value="1" min="1" />
+      `;
+    }
+    if (type === 'text_contains') {
+      return `
+        <input type="text" class="chk-text" placeholder="Text that must appear on the page" />
+        <label class="checkbox-row" style="padding:0; margin:0;">
+          <input type="checkbox" class="chk-case-sensitive" />
+          <span class="muted" style="white-space:nowrap;">Case sensitive</span>
+        </label>
+      `;
+    }
+    if (type === 'html_contains') {
+      return `<input type="text" class="chk-pattern" placeholder="Exact text that must appear in the HTML source" />`;
+    }
+    return '';
+  }
+
+  function addCheckRow(existing) {
+    const id = `chk_${++checkRowSeq}`;
+    const row = document.createElement('div');
+    row.className = 'check-row';
+    row.dataset.rowId = id;
+    const type = (existing && existing.type) || 'selector_exists';
+    row.innerHTML = `
+      <div class="check-row-top">
+        <input type="text" class="chk-label" placeholder="Check name, e.g. \"Has a heading\"" value="${existing ? escapeHtml(existing.label) : ''}" />
+        <select class="chk-type">
+          <option value="selector_exists">Element exists (CSS selector)</option>
+          <option value="text_contains">Page text contains</option>
+          <option value="html_contains">HTML source contains</option>
+        </select>
+        <button type="button" class="secondary remove-check">Remove</button>
+      </div>
+      <div class="check-row-fields">${checkRowFieldsHtml(type)}</div>
+    `;
+    $('checksList').appendChild(row);
+
+    const select = row.querySelector('.chk-type');
+    select.value = type;
+    select.addEventListener('change', () => {
+      row.querySelector('.check-row-fields').innerHTML = checkRowFieldsHtml(select.value);
+      applyExistingValuesToRow(row, existing && existing.type === select.value ? existing : null);
+    });
+    row.querySelector('.remove-check').addEventListener('click', () => row.remove());
+
+    applyExistingValuesToRow(row, existing);
+  }
+
+  function applyExistingValuesToRow(row, existing) {
+    if (!existing) return;
+    const set = (sel, val) => { const el = row.querySelector(sel); if (el) { if (el.type === 'checkbox') el.checked = !!val; else el.value = val; } };
+    set('.chk-selector', existing.selector);
+    set('.chk-min-count', existing.min_count);
+    set('.chk-text', existing.text);
+    set('.chk-case-sensitive', existing.case_sensitive);
+    set('.chk-pattern', existing.pattern);
+  }
+
+  function collectChecks() {
+    return Array.from($('checksList').querySelectorAll('.check-row')).map((row) => {
+      const type = row.querySelector('.chk-type').value;
+      const label = row.querySelector('.chk-label').value.trim();
+      const base = { label, type };
+      if (type === 'selector_exists') {
+        base.selector = (row.querySelector('.chk-selector') || {}).value || '';
+        base.min_count = parseInt((row.querySelector('.chk-min-count') || {}).value, 10) || 1;
+      } else if (type === 'text_contains') {
+        base.text = (row.querySelector('.chk-text') || {}).value || '';
+        base.case_sensitive = !!(row.querySelector('.chk-case-sensitive') || {}).checked;
+      } else if (type === 'html_contains') {
+        base.pattern = (row.querySelector('.chk-pattern') || {}).value || '';
+      }
+      return base;
+    }).filter((c) => c.label);
+  }
+
   async function onAddExam(e) {
     e.preventDefault();
     $('examError').textContent = '';
@@ -302,10 +389,12 @@
           instructions: $('e_instructions').value,
           starter_code: $('e_starter').value,
           time_limit_minutes: parseInt($('e_time').value, 10) || 60,
-          violation_limit: parseInt($('e_vlimit').value, 10) || 5
+          violation_limit: parseInt($('e_vlimit').value, 10) || 5,
+          checks: collectChecks()
         })
       });
       $('addExamForm').reset();
+      $('checksList').innerHTML = '';
       await loadExams();
     } catch (err) {
       $('examError').textContent = err.message;
@@ -327,6 +416,12 @@
 
   // All submissions for an exam, any status — this is how an admin retrieves any student's
   // code/output/violation history at any time, not just while an exam is live.
+  function scoreBadgeHtml(score) {
+    if (score === null || score === undefined) return '<span class="muted">—</span>';
+    const cls = score >= 80 ? 'high' : score >= 50 ? 'mid' : 'low';
+    return `<span class="score-badge ${cls}">${score}%</span>`;
+  }
+
   async function openSubmissionsModal(examId) {
     const exam = exams.find((e) => String(e.id) === String(examId));
     $('submissionsTitle').textContent = exam ? `Submissions — ${exam.title}` : 'Submissions';
@@ -334,7 +429,7 @@
     const rows = await api(`/api/admin/exams/${examId}/assignments`);
     const tbody = $('submissionsBody');
     tbody.innerHTML = rows.length
-      ? '' : '<tr><td colspan="5" class="muted">No students assigned to this exam yet.</td></tr>';
+      ? '' : '<tr><td colspan="6" class="muted">No students assigned to this exam yet.</td></tr>';
     for (const r of rows) {
       const vClass = r.violation_count === 0 ? 'zero' : 'some';
       const tr = document.createElement('tr');
@@ -342,6 +437,7 @@
         <td>${escapeHtml(r.full_name)} <span class="muted">(${escapeHtml(r.username)})</span></td>
         <td><span class="badge ${r.status}">${r.status.replace('_',' ')}</span></td>
         <td><span class="violation-count ${vClass}">${r.violation_count}</span></td>
+        <td>${scoreBadgeHtml(r.score)}</td>
         <td class="muted">${r.submitted_at ? escapeHtml(r.submitted_at.slice(0,19)) : '—'}</td>
         <td><button class="secondary view-sub-btn" data-id="${r.id}">View</button></td>
       `;
@@ -419,7 +515,36 @@
       await loadMonitor();
     };
 
+    renderTestResults(data.test_results, data.score, (data.assignment.checks || []).length);
+    $('runTestsBtn').style.display = (data.assignment.checks || []).length ? 'inline-block' : 'none';
+    $('runTestsBtn').onclick = async () => {
+      const result = await api(`/api/admin/assignments/${assignmentId}/run-tests`, { method: 'POST' });
+      renderTestResults(result.test_results, result.score, (data.assignment.checks || []).length);
+    };
+
     $('detailModal').style.display = 'flex';
+  }
+
+  function renderTestResults(testResults, score, checkCount) {
+    $('detailScore').innerHTML = score === null || score === undefined ? '' : scoreBadgeHtml(score);
+    const el = $('detailTestResults');
+    if (!checkCount) {
+      el.innerHTML = '<p class="muted">This exam has no auto-grading checks defined.</p>';
+      return;
+    }
+    if (!testResults || testResults.length === 0) {
+      el.innerHTML = '<p class="muted">Not graded yet — click "Run tests".</p>';
+      return;
+    }
+    el.innerHTML = testResults.map((r) => `
+      <div class="test-result-row">
+        <span class="dot ${r.passed ? 'pass' : 'fail'}"></span>
+        <div>
+          <strong>${escapeHtml(r.label)}</strong><br/>
+          <span class="muted">${escapeHtml(r.detail || '')}</span>
+        </div>
+      </div>
+    `).join('');
   }
 
   init();

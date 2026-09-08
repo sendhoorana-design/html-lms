@@ -52,6 +52,10 @@
       <div class="pane-header">Output preview</div>
       <iframe id="preview" sandbox="allow-scripts"></iframe>
     </div>
+    <div class="pane" id="testResultsPane" style="display:none; flex: 0 0 280px; border-left: 1px solid var(--border);">
+      <div class="pane-header">Test results <span id="studentScoreBadge"></span></div>
+      <div id="studentTestResultsList" style="overflow:auto; padding:10px; font-size:12px;"></div>
+    </div>
     <div class="pane" id="violationsPane" style="display:none; flex: 0 0 280px; border-left: 1px solid var(--border);">
       <div class="pane-header">Proctoring log</div>
       <div id="studentViolationsList" style="overflow:auto; padding:10px; font-size:12px;"></div>

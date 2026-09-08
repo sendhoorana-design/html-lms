@@ -115,6 +115,7 @@
     $('lockOverlay').style.display = 'none';
     $('fullscreenPrompt').style.display = 'none';
     $('violationsPane').style.display = 'none';
+    $('testResultsPane').style.display = 'none';
     $('assignmentList').style.display = 'block';
 
     const assignments = await api('/api/student/assignments');
@@ -166,6 +167,7 @@
       $('submitBtn').style.display = 'none';
       initEditor(data.code || '', true);
       renderViolations(data.violations || []);
+      renderTestResults(data.test_results || [], data.score);
       return;
     }
 
@@ -173,6 +175,7 @@
     $('saveStatus').style.display = 'inline';
     $('submitBtn').style.display = 'inline-block';
     $('violationsPane').style.display = 'none';
+    $('testResultsPane').style.display = 'none';
 
     if (data.assignment.started_at && data.assignment.time_limit_minutes) {
       const started = new Date(data.assignment.started_at + 'Z');
@@ -198,6 +201,33 @@
       <div style="padding:6px 0; border-bottom:1px solid var(--border);">
         <strong>${escapeHtml(humanType(v.type))}</strong><br/>
         <span class="muted">${escapeHtml((v.created_at || '').slice(0,19))}</span>
+      </div>
+    `).join('');
+  }
+
+  function renderTestResults(testResults, score) {
+    const pane = $('testResultsPane');
+    const badge = $('studentScoreBadge');
+    const list = $('studentTestResultsList');
+    if (!testResults || !testResults.length) {
+      pane.style.display = 'none';
+      return;
+    }
+    pane.style.display = 'flex';
+    let scoreClass = 'low';
+    if (typeof score === 'number') {
+      scoreClass = score >= 80 ? 'high' : (score >= 50 ? 'mid' : 'low');
+      badge.innerHTML = `<span class="score-badge ${scoreClass}">${score}%</span>`;
+    } else {
+      badge.innerHTML = '';
+    }
+    list.innerHTML = testResults.map((r) => `
+      <div class="test-result-row">
+        <span class="dot ${r.passed ? 'pass' : 'fail'}"></span>
+        <div>
+          <div>${escapeHtml(r.label)}</div>
+          <div class="muted">${escapeHtml(r.detail || '')}</div>
+        </div>
       </div>
     `).join('');
   }

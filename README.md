@@ -95,6 +95,33 @@ screenshot captured at the moment of submission — e.g. for exercises with anim
 that's a separate feature; ask and it can be added, with `html2canvas` and some extra sandboxing care since
 it touches the same cross-origin boundary that keeps student code from reaching the rest of the app.)
 
+## Auto-grading
+
+When creating an exam, admins can optionally add **auto-grading checks** under "Auto-grading checks" in the
+Create Exam form. Each check is one of:
+
+- **Element exists** (`selector_exists`) — a CSS selector must match at least a configured minimum number of
+  elements (e.g. `table tr` with a minimum of 5, or `h1` with a minimum of 1).
+- **Rendered text contains** (`text_contains`) — a substring must appear in the page's rendered (visible)
+  text, with an optional case-sensitive toggle.
+- **Raw HTML contains** (`html_contains`) — a substring must appear in the raw HTML source the student
+  submitted (useful for checking for things like `<!DOCTYPE html>` or a specific attribute that produces no
+  visible text).
+
+Checks run automatically, server-side, the moment a student submits — using Cheerio to parse the submitted
+HTML statically (no JavaScript execution, so this is safe to run without any sandboxing concerns). The score
+is simply the percentage of checks passed. Both the per-check pass/fail with a short explanation, and the
+overall score, are visible to:
+
+- **Admins** — in the Submissions list (a colored score badge per row) and in the assignment detail modal
+  (full per-check breakdown), which also has a **"Run tests"** button to re-run the checks on demand — handy
+  if you edit an exam's checks after some students have already submitted.
+- **Students** — in their own read-only "View" of a submitted/locked exam, as a dedicated "Test results"
+  panel next to the code and output panes.
+
+Exams with no checks defined simply show no score/test results anywhere — auto-grading is entirely optional
+per exam.
+
 ## Proctoring — what's actually enforced, and what isn't
 
 Browsers cannot give a web page control over the operating system, so a page **cannot literally prevent** a
@@ -197,10 +224,12 @@ Four MongoDB collections (see `server/models/`):
 
 - `User` — admins and students, role-based, bcrypt-hashed passwords, plus a `must_change_password` flag
   used by CSV imports and the admin's "Force change" action
-- `Exam` — title, instructions, starter code, time limit, violation limit
+- `Exam` — title, instructions, starter code, time limit, violation limit, and an optional array of
+  auto-grading `checks`
 - `ExamAssignment` — one document per (student, exam) pair; tracks status (`not_started` / `in_progress` /
   `submitted` / `locked`), timestamps, **and the student's current/final code directly on the document** —
-  there's no separate "submissions" collection since it's always a strict 1:1 relationship
+  there's no separate "submissions" collection since it's always a strict 1:1 relationship. Also stores
+  `test_results` and `score` once auto-grading has run.
 - `Violation` — every proctoring event, referencing the assignment/student/exam, with type/detail/timestamp
 
 ## Notes / next steps if you want to extend this
@@ -209,6 +238,8 @@ Four MongoDB collections (see `server/models/`):
   editor and preview-building logic in `public/js/student.js` (`initEditor` / `updatePreview`) is the place
   to extend.
 - No email/password-reset flow — admin sets student passwords directly.
-- No grading/rubric UI yet — admins currently review submitted code visually in the detail modal.
+- Auto-grading checks (element exists / text contains / HTML contains) run automatically on submit — see
+  "Auto-grading" above. There's no rubric/partial-credit-per-check weighting yet — every check counts equally
+  toward the score.
 - For production use: put this behind HTTPS, set a strong `JWT_SECRET` in `.env`, and consider rate-limiting
   the login route.

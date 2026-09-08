@@ -187,6 +187,33 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .checkbox-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .checkbox-row input { width: auto; }
 
+.check-row {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.check-row .check-row-top { display: flex; gap: 8px; align-items: center; }
+.check-row .check-row-top input { flex: 1; }
+.check-row .check-row-top select { width: 160px; flex-shrink: 0; }
+.check-row .check-row-fields { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+.check-row .check-row-fields input[type="text"] { flex: 1; }
+.check-row .check-row-fields input[type="number"] { width: 70px; }
+.check-row .remove-check { flex-shrink: 0; }
+
+.test-result-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.test-result-row .dot { flex-shrink: 0; margin-top: 3px; width: 8px; height: 8px; border-radius: 50%; }
+.test-result-row .dot.pass { background: var(--accent-2); }
+.test-result-row .dot.fail { background: var(--danger); }
+
+.score-badge {
+  display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 13px;
+}
+.score-badge.high { background: rgba(52,211,153,0.15); color: var(--accent-2); }
+.score-badge.mid { background: rgba(251,191,36,0.15); color: var(--warn); }
+.score-badge.low { background: rgba(248,113,113,0.15); color: var(--danger); }
+
 .muted { color: var(--muted); }
 .mt-16 { margin-top: 16px; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }

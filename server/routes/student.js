@@ -5,6 +5,7 @@ const ExamAssignment = require('../models/ExamAssignment');
 const Violation = require('../models/Violation');
 const { authRequired, requireRole } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
+const { runChecks } = require('../utils/grader');
 
 const router = express.Router();
 router.use(authRequired, requireRole('student'));
@@ -108,7 +109,9 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
     },
     code: assignment.code || '',
     readOnly,
-    violations
+    violations,
+    test_results: assignment.test_results || [],
+    score: assignment.score
   });
 }));
 
@@ -129,15 +132,27 @@ router.put('/assignments/:id/code', asyncHandler(async (req, res) => {
 
 // Submit
 router.post('/assignments/:id/submit', asyncHandler(async (req, res) => {
-  const assignment = await ExamAssignment.findOne({ _id: req.params.id, student: req.user.id });
+  const assignment = await ExamAssignment.findOne({ _id: req.params.id, student: req.user.id }).populate('exam', 'checks');
   if (!assignment) return res.status(404).json({ error: 'Not found' });
   if (assignment.status === 'submitted' || assignment.status === 'locked') {
     return res.status(423).json({ error: 'This exam is no longer editable' });
   }
   assignment.status = 'submitted';
   assignment.submitted_at = new Date();
+
+  // Auto-grade against whatever checks the exam defines, if any. Grading only ever reads the
+  // student's code — it can't fail the submission itself, so any grading error is swallowed
+  // rather than blocking the submit.
+  try {
+    const { results, score } = runChecks(assignment.code, assignment.exam ? assignment.exam.checks : []);
+    assignment.test_results = results;
+    assignment.score = score;
+  } catch (e) {
+    // leave test_results/score as-is (defaults) if grading itself throws
+  }
+
   await assignment.save();
-  res.json({ ok: true });
+  res.json({ ok: true, test_results: assignment.test_results, score: assignment.score });
 }));
 
 // Heartbeat (keeps last_seen_at fresh for the live monitor, called periodically)

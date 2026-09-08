@@ -98,7 +98,15 @@
             <input id="e_vlimit" type="number" value="5" />
           </div>
         </div>
-        <button style="margin-top:16px;" type="submit">Create exam</button>
+
+        <label class="mt-16">Auto-grading checks <span class="muted">(optional)</span></label>
+        <p class="muted" style="margin-top:0; font-size:12px;">
+          Each check runs automatically when a student submits. Score = % of checks passed.
+        </p>
+        <div id="checksList"></div>
+        <button type="button" class="secondary" id="addCheckBtn" style="margin-top:8px;">+ Add check</button>
+
+        <button style="margin-top:16px; display:block;" type="submit">Create exam</button>
         <div class="error-text" id="examError"></div>
       </form>
     </div>
@@ -131,7 +139,7 @@
       <button class="secondary" id="submissionsCloseBtn">Close</button>
     </div>
     <table class="mt-16">
-      <thead><tr><th>Student</th><th>Status</th><th>Violations</th><th>Submitted</th><th></th></tr></thead>
+      <thead><tr><th>Student</th><th>Status</th><th>Violations</th><th>Score</th><th>Submitted</th><th></th></tr></thead>
       <tbody id="submissionsBody"></tbody>
     </table>
   </div>
@@ -154,6 +162,15 @@
         <div id="detailViolations" style="max-height:300px; overflow:auto; font-size:13px;"></div>
       </div>
     </div>
+
+    <div class="mt-16">
+      <div class="flex-between">
+        <h4 style="margin:0;">Auto-graded tests <span id="detailScore"></span></h4>
+        <button class="secondary" id="runTestsBtn">Run tests</button>
+      </div>
+      <div id="detailTestResults" style="max-height:220px; overflow:auto; font-size:13px; margin-top:8px;"></div>
+    </div>
+
     <div class="mt-16">
       <button class="secondary" id="unlockBtn">Unlock exam</button>
     </div>

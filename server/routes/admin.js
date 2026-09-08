@@ -7,6 +7,7 @@ const ExamAssignment = require('../models/ExamAssignment');
 const Violation = require('../models/Violation');
 const { authRequired, requireRole } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
+const { runChecks } = require('../utils/grader');
 
 const router = express.Router();
 router.use(authRequired, requireRole('admin'));
@@ -123,20 +124,56 @@ router.get('/exams', asyncHandler(async (req, res) => {
     starter_code: e.starter_code,
     time_limit_minutes: e.time_limit_minutes,
     violation_limit: e.violation_limit,
+    checks: e.checks || [],
     created_by: e.created_by ? e.created_by.toString() : null,
     created_at: e.created_at
   })));
 }));
 
+// A check is only kept if it has a label, a valid type, and whatever field that type actually
+// needs — silently drops anything malformed rather than rejecting the whole exam creation over
+// one bad row in the admin's checks UI.
+function sanitizeChecks(rawChecks) {
+  if (!Array.isArray(rawChecks)) return [];
+  const allowedTypes = ['selector_exists', 'text_contains', 'html_contains'];
+  return rawChecks
+    .filter((c) => c && typeof c === 'object' && c.label && allowedTypes.includes(c.type))
+    .map((c) => ({
+      label: String(c.label).slice(0, 200),
+      type: c.type,
+      selector: c.type === 'selector_exists' ? String(c.selector || '').slice(0, 300) : '',
+      min_count: c.type === 'selector_exists' ? Math.max(1, parseInt(c.min_count, 10) || 1) : 1,
+      text: c.type === 'text_contains' ? String(c.text || '').slice(0, 500) : '',
+      case_sensitive: c.type === 'text_contains' ? !!c.case_sensitive : false,
+      pattern: c.type === 'html_contains' ? String(c.pattern || '').slice(0, 500) : ''
+    }))
+    .filter((c) => (c.type === 'selector_exists' && c.selector) || (c.type === 'text_contains' && c.text) || (c.type === 'html_contains' && c.pattern));
+}
+
 router.post('/exams', asyncHandler(async (req, res) => {
-  const { title, instructions, starter_code, time_limit_minutes, violation_limit } = req.body;
+  const { title, instructions, starter_code, time_limit_minutes, violation_limit, checks } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
 
-  const doc = { title, instructions: instructions || '', time_limit_minutes: time_limit_minutes || 60, violation_limit: violation_limit || 5, created_by: req.user.id };
+  const doc = {
+    title,
+    instructions: instructions || '',
+    time_limit_minutes: time_limit_minutes || 60,
+    violation_limit: violation_limit || 5,
+    checks: sanitizeChecks(checks),
+    created_by: req.user.id
+  };
   if (starter_code) doc.starter_code = starter_code;
 
   const exam = await Exam.create(doc);
   res.status(201).json({ id: exam._id.toString() });
+}));
+
+// Update an exam's checks (e.g. after seeing real submissions come in and wanting to adjust).
+router.put('/exams/:id/checks', asyncHandler(async (req, res) => {
+  const checks = sanitizeChecks(req.body.checks);
+  const result = await Exam.updateOne({ _id: req.params.id }, { $set: { checks } });
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, checks });
 }));
 
 router.delete('/exams/:id', asyncHandler(async (req, res) => {
@@ -188,7 +225,8 @@ router.get('/exams/:id/assignments', asyncHandler(async (req, res) => {
       started_at: a.started_at,
       submitted_at: a.submitted_at,
       last_seen_at: a.last_seen_at,
-      violation_count: countMap.get(a._id.toString()) || 0
+      violation_count: countMap.get(a._id.toString()) || 0,
+      score: typeof a.score === 'number' ? a.score : null
     }))
     .sort((x, y) => (x.full_name || '').localeCompare(y.full_name || ''));
 
@@ -224,7 +262,8 @@ router.get('/monitor', asyncHandler(async (req, res) => {
       exam_id: a.exam._id.toString(),
       exam_title: a.exam.title,
       violation_limit: a.exam.violation_limit,
-      violation_count: countMap.get(a._id.toString()) || 0
+      violation_count: countMap.get(a._id.toString()) || 0,
+      score: typeof a.score === 'number' ? a.score : null
     }))
     .sort((x, y) => (y.violation_count - x.violation_count) || String(y.last_seen_at).localeCompare(String(x.last_seen_at)));
 
@@ -234,7 +273,7 @@ router.get('/monitor', asyncHandler(async (req, res) => {
 router.get('/assignments/:id', asyncHandler(async (req, res) => {
   const a = await ExamAssignment.findById(req.params.id)
     .populate('student', 'username full_name')
-    .populate('exam', 'title instructions violation_limit')
+    .populate('exam', 'title instructions violation_limit checks')
     .lean();
   if (!a || !a.student || !a.exam) return res.status(404).json({ error: 'Not found' });
 
@@ -253,9 +292,12 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
       full_name: a.student.full_name,
       exam_title: a.exam.title,
       instructions: a.exam.instructions,
-      violation_limit: a.exam.violation_limit
+      violation_limit: a.exam.violation_limit,
+      checks: a.exam.checks || []
     },
     code: a.code || '',
+    test_results: a.test_results || [],
+    score: typeof a.score === 'number' ? a.score : null,
     violations: violations.map((v) => ({
       id: v._id.toString(),
       type: v.type,
@@ -268,6 +310,20 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
 router.post('/assignments/:id/unlock', asyncHandler(async (req, res) => {
   await ExamAssignment.updateOne({ _id: req.params.id }, { $set: { status: 'in_progress' } });
   res.json({ ok: true });
+}));
+
+// Re-run auto-grading on demand — useful after editing an exam's checks, or for a submission
+// made before checks existed.
+router.post('/assignments/:id/run-tests', asyncHandler(async (req, res) => {
+  const assignment = await ExamAssignment.findById(req.params.id).populate('exam', 'checks');
+  if (!assignment || !assignment.exam) return res.status(404).json({ error: 'Not found' });
+
+  const { results, score } = runChecks(assignment.code, assignment.exam.checks || []);
+  assignment.test_results = results;
+  assignment.score = score;
+  await assignment.save();
+
+  res.json({ ok: true, test_results: results, score });
 }));
 
 module.exports = router;
