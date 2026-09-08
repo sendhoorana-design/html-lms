@@ -218,6 +218,22 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .mt-16 { margin-top: 16px; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
 
+/* Disable text selection everywhere on the exam page except inside the code editor. This is a
+   deterrent against the "long-press a word → select → search" flow (the older, selection-based
+   version of on-device search assistants). It does NOT and cannot block screen-drawing search
+   gestures like Android's Circle to Search — those work at the OS level by reading pixels off
+   the whole screen, completely outside any webpage's visibility or control, the same hard
+   platform boundary documented for app-switching elsewhere in this file. */
+.exam-editor-wrap {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.exam-editor-wrap .CodeMirror,
+.exam-editor-wrap .CodeMirror * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Mobile: stack the exam panes vertically (code on top, output below) instead of side by side.
    The side panes (test results / proctoring log) use inline flex-basis styles set from JS, so
    those need !important here to override them on small screens. */

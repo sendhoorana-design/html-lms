@@ -153,6 +153,9 @@ instead, entirely from the browser:
   instead a `beforeunload` handler fires a `navigator.sendBeacon()` call (which, unlike a normal `fetch`,
   is specifically designed to still get delivered even as the page is being torn down) to log the exit
   attempt, and shows the browser's native "leave site?" confirmation as a speed bump.
+- **Blocks text selection** everywhere on the exam page except inside the code editor itself (where
+  selection is needed to edit). This closes off the older "long-press a word → select → search" flow
+  some on-device search assistants use.
 - Every violation is written to the database and pushed instantly to the admin's Live Monitor over
   Socket.io. Each exam has a configurable violation limit (default 5); hitting it **auto-locks** the exam
   and the student is shown a "contact your administrator" screen until an admin unlocks it.
@@ -161,7 +164,11 @@ instead, entirely from the browser:
 system, so nothing here can literally prevent alt-tabbing to another application, block screenshots, or stop
 someone closing the laptop lid and using a second device — those require a dedicated native lockdown browser
 (Safe Exam Browser, Respondus) pointed at this app's URL, or wrapping this frontend in an Electron kiosk app
-that takes over the whole OS session. Every control above is a deterrent-plus-detection layer: it makes the
+that takes over the whole OS session. The same boundary applies to OS-level screen-search gestures on
+mobile — Android's **Circle to Search** and similar Assistant/Bixby "search what's on screen" features work
+by reading pixels directly off the display at the OS level, entirely outside any webpage's reach, so a
+website genuinely cannot detect or block the gesture itself (only the older text-selection-based search
+flow, which is blocked — see above). Every control above is a deterrent-plus-detection layer: it makes the
 easy, absent-minded ways of leaving an exam either blocked outright or immediately logged, which is what a
 browser-based tool can honestly promise. Say the word if you want the native-lockdown path built out.
 
