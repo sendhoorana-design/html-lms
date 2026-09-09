@@ -49,9 +49,18 @@ Open `http://localhost:4000/login.html` to sign in. Admins land on `/admin.html`
 
 **Admin flow:** Students tab → create student logins one at a time, or import many at once from a CSV (see
 below). Exams tab → create an exam (title, instructions, starter HTML, time limit, violation limit) and
-assign it to one or more students. Live Monitor tab → shows every exam currently in progress, live violation
-counts, and last-activity timestamps, updated in real time over WebSockets. Click "View" on any row to see
-the student's live code and full violation log; locked exams can be unlocked from there.
+assign it to one or more students — the assign dialog has "Select all" / "Clear all" buttons so a whole
+class can be assigned in one click instead of checking each student individually. Live Monitor tab → shows
+every exam currently in progress, live violation counts, and last-activity timestamps, updated in real time
+over WebSockets. Click "View" on any row to see the student's live code and full violation log; locked exams
+can be unlocked from there.
+
+Click **"Edit"** next to any exam to change it later — title, instructions, starter code, time limit,
+violation limit, and the auto-grading checks are all editable, reusing the same form as creating a new exam
+("Save changes" replaces "Create exam" while editing; "Cancel edit" backs out without saving). Editing an
+exam doesn't touch students who've already started it — their in-progress code is untouched, and starter
+code only ever seeds an assignment that hasn't been opened yet; changes to checks simply apply the next time
+a submission is (re-)graded.
 
 ## Bulk student creation via CSV, and forced password changes
 
@@ -108,10 +117,13 @@ Create Exam form. Each check is one of:
   submitted (useful for checking for things like `<!DOCTYPE html>` or a specific attribute that produces no
   visible text).
 
-Checks can also be added in bulk instead of one at a time — the **"Bulk add"** box above the check list
+Checks can also be added in bulk instead of one at a time. The **"Bulk add"** box above the check list
 takes one check per line in the form `type|label|value|extra` (e.g.
-`selector_exists|Has a heading|h1|1` or `text_contains|Contains welcome|Welcome|case`), and adding it
-populates the same rows below, which can still be edited or removed individually afterward.
+`selector_exists|Has a heading|h1|1` or `text_contains|Contains welcome|Welcome|case`). Below that,
+**"Import checks from a CSV file"** does the same thing from an actual `.csv` file — header row
+`type,label,value,extra` — for cases where the checks already live in a spreadsheet (a "Download sample
+CSV" button gives you a template). Either way, the parsed checks populate the same rows below, which can
+still be edited or removed individually afterward.
 
 Checks run automatically, server-side, the moment a student submits — using Cheerio to parse the submitted
 HTML statically (no JavaScript execution, so this is safe to run without any sandboxing concerns). The score

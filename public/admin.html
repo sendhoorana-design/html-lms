@@ -81,7 +81,7 @@
   <div id="tab-exams" class="tab-panel" style="display:none;">
     <h2>Exams</h2>
     <div class="card" style="max-width:640px;">
-      <h3 style="margin-top:0;">Create exam</h3>
+      <h3 style="margin-top:0;" id="examFormTitle">Create exam</h3>
       <form id="addExamForm">
         <label>Title</label>
         <input id="e_title" required />
@@ -119,12 +119,29 @@
           <textarea id="checksBulkInput" rows="4" placeholder="selector_exists|Has a heading|h1|1&#10;text_contains|Contains welcome|Welcome&#10;html_contains|Has doctype|&lt;!DOCTYPE"></textarea>
           <button type="button" class="secondary mt-16" id="checksBulkAddBtn">Add from text</button>
           <div class="error-text" id="checksBulkError"></div>
+
+          <div class="mt-16" style="border-top:1px solid var(--border); padding-top:14px;">
+            <label style="margin:0 0 4px;">Or import checks from a CSV file</label>
+            <p class="muted" style="margin-top:0; font-size:12px;">
+              Header row required: <code>type,label,value,extra</code> — same meaning as the text
+              format above, just comma-separated in a file instead of pasted.
+            </p>
+            <input type="file" id="checksCsvFileInput" accept=".csv,text/csv" />
+            <div style="display:flex; gap:10px; margin-top:12px;">
+              <button type="button" id="checksCsvImportBtn" disabled>Import CSV</button>
+              <button type="button" class="secondary" id="checksCsvSampleBtn">Download sample CSV</button>
+            </div>
+            <div class="error-text" id="checksCsvError"></div>
+          </div>
         </div>
 
         <div id="checksList" class="mt-16"></div>
         <button type="button" class="secondary" id="addCheckBtn" style="margin-top:8px;">+ Add single check</button>
 
-        <button style="margin-top:16px; display:block;" type="submit">Create exam</button>
+        <div style="display:flex; gap:10px; margin-top:16px;">
+          <button type="submit" id="examSubmitBtn">Create exam</button>
+          <button type="button" class="secondary" id="examCancelEditBtn" style="display:none;">Cancel edit</button>
+        </div>
         <div class="error-text" id="examError"></div>
       </form>
     </div>
@@ -140,8 +157,14 @@
 <!-- Assign modal -->
 <div id="assignModal" class="modal-backdrop" style="display:none;">
   <div class="modal">
-    <h3 style="margin-top:0;">Assign exam to students</h3>
-    <div id="assignStudentList"></div>
+    <div class="flex-between">
+      <h3 style="margin:0;">Assign exam to students</h3>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="secondary" id="assignSelectAllBtn" style="padding:4px 10px; font-size:12px;">Select all</button>
+        <button type="button" class="secondary" id="assignClearAllBtn" style="padding:4px 10px; font-size:12px;">Clear all</button>
+      </div>
+    </div>
+    <div id="assignStudentList" class="mt-16"></div>
     <div style="display:flex; gap:10px; margin-top:16px;">
       <button id="assignConfirmBtn">Assign</button>
       <button class="secondary" id="assignCancelBtn">Cancel</button>

@@ -43,10 +43,18 @@
 
     $('addStudentForm').addEventListener('submit', onAddStudent);
     $('addExamForm').addEventListener('submit', onAddExam);
+    $('examCancelEditBtn').addEventListener('click', () => resetExamForm());
     $('addCheckBtn').addEventListener('click', () => addCheckRow());
     setupChecksBulkAdd();
+    setupChecksCsvImport();
     setupCsvImport();
     $('assignCancelBtn').addEventListener('click', () => $('assignModal').style.display = 'none');
+    $('assignSelectAllBtn').addEventListener('click', () => {
+      document.querySelectorAll('#assignStudentList input[type="checkbox"]').forEach((el) => { el.checked = true; });
+    });
+    $('assignClearAllBtn').addEventListener('click', () => {
+      document.querySelectorAll('#assignStudentList input[type="checkbox"]').forEach((el) => { el.checked = false; });
+    });
     $('detailCloseBtn').addEventListener('click', () => $('detailModal').style.display = 'none');
     $('submissionsCloseBtn').addEventListener('click', () => $('submissionsModal').style.display = 'none');
 
@@ -273,6 +281,7 @@
         <td>
           <button class="secondary assign-btn" data-id="${ex.id}">Assign</button>
           <button class="secondary submissions-btn" data-id="${ex.id}">Submissions</button>
+          <button class="secondary edit-exam-btn" data-id="${ex.id}">Edit</button>
           <button class="secondary danger-exam" data-id="${ex.id}">Delete</button>
         </td>
       `;
@@ -283,6 +292,9 @@
     });
     tbody.querySelectorAll('.submissions-btn').forEach((btn) => {
       btn.addEventListener('click', () => openSubmissionsModal(btn.dataset.id));
+    });
+    tbody.querySelectorAll('.edit-exam-btn').forEach((btn) => {
+      btn.addEventListener('click', () => startEditExam(btn.dataset.id));
     });
     tbody.querySelectorAll('.danger-exam').forEach((btn) => {
       btn.addEventListener('click', async () => {
@@ -403,6 +415,122 @@
     return { parsed, errors };
   }
 
+  // Generic checks-CSV parser: header row must include type,label,value,extra (any column
+  // order). Reuses the same quote-aware parseCsvLine already used for student CSV import, and
+  // the same type/value/extra semantics as the pipe-delimited bulk-add textarea above.
+  function parseChecksCsvText(text) {
+    const lines = text.split(/\r\n|\n|\r/).filter((l) => l.trim().length > 0);
+    if (lines.length === 0) throw new Error('File is empty');
+
+    const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const typeIdx = header.indexOf('type');
+    const labelIdx = header.indexOf('label');
+    const valueIdx = header.indexOf('value');
+    const extraIdx = header.indexOf('extra');
+    if (typeIdx === -1 || labelIdx === -1) {
+      throw new Error('Header row must include "type" and "label" columns');
+    }
+
+    const validTypes = ['selector_exists', 'text_contains', 'html_contains'];
+    const parsed = [];
+    const errors = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const lineNum = i + 1;
+      const fields = parseCsvLine(lines[i]);
+      const type = (fields[typeIdx] || '').trim();
+      const label = (fields[labelIdx] || '').trim();
+      const value = valueIdx !== -1 ? (fields[valueIdx] || '').trim() : '';
+      const extra = extraIdx !== -1 ? (fields[extraIdx] || '').trim() : '';
+
+      if (!type || !validTypes.includes(type)) {
+        errors.push(`Row ${lineNum}: type must be one of ${validTypes.join(', ')}`);
+        continue;
+      }
+      if (!label) {
+        errors.push(`Row ${lineNum}: missing label`);
+        continue;
+      }
+
+      const check = { type, label };
+      if (type === 'selector_exists') {
+        if (!value) { errors.push(`Row ${lineNum}: selector_exists needs a CSS selector`); continue; }
+        check.selector = value;
+        check.min_count = parseInt(extra, 10) || 1;
+      } else if (type === 'text_contains') {
+        if (!value) { errors.push(`Row ${lineNum}: text_contains needs text`); continue; }
+        check.text = value;
+        check.case_sensitive = extra.toLowerCase() === 'case';
+      } else if (type === 'html_contains') {
+        if (!value) { errors.push(`Row ${lineNum}: html_contains needs a pattern`); continue; }
+        check.pattern = value;
+      }
+      parsed.push(check);
+    }
+
+    return { parsed, errors };
+  }
+
+  let pendingChecksCsvText = null;
+
+  function setupChecksCsvImport() {
+    $('checksCsvFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      $('checksCsvError').textContent = '';
+      $('checksCsvError').style.color = '';
+      pendingChecksCsvText = null;
+      $('checksCsvImportBtn').disabled = true;
+      if (!file) return;
+
+      try {
+        pendingChecksCsvText = await file.text();
+        $('checksCsvImportBtn').disabled = false;
+        $('checksCsvError').style.color = 'var(--muted)';
+        $('checksCsvError').textContent = 'File ready — click Import CSV.';
+      } catch (err) {
+        $('checksCsvError').textContent = err.message;
+      }
+    });
+
+    $('checksCsvImportBtn').addEventListener('click', () => {
+      if (!pendingChecksCsvText) return;
+      const errEl = $('checksCsvError');
+      errEl.textContent = '';
+      errEl.style.color = '';
+      try {
+        const { parsed, errors } = parseChecksCsvText(pendingChecksCsvText);
+        parsed.forEach((c) => addCheckRow(c));
+        if (errors.length && parsed.length) {
+          errEl.textContent = `${parsed.length} check(s) added. ${errors.length} row(s) skipped — ${errors.join('; ')}`;
+        } else if (errors.length) {
+          errEl.textContent = `Nothing added — ${errors.join('; ')}`;
+        } else {
+          errEl.style.color = 'var(--muted)';
+          errEl.textContent = `${parsed.length} check(s) added below.`;
+        }
+        pendingChecksCsvText = null;
+        $('checksCsvFileInput').value = '';
+        $('checksCsvImportBtn').disabled = true;
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    });
+
+    $('checksCsvSampleBtn').addEventListener('click', () => {
+      const sample = 'type,label,value,extra\n'
+        + 'selector_exists,Has a heading,h1,1\n'
+        + 'text_contains,Contains welcome,Welcome,case\n'
+        + 'html_contains,Has doctype,<!DOCTYPE,\n';
+      const blob = new Blob([sample], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'checks-sample.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+
   function setupChecksBulkAdd() {
     $('checksBulkAddBtn').addEventListener('click', () => {
       const text = $('checksBulkInput').value;
@@ -449,25 +577,65 @@
     }).filter((c) => c.label);
   }
 
+  // ----- Create / edit exam (same form doubles as both, toggled by editingExamId) -----
+
+  let editingExamId = null;
+
+  function resetExamForm() {
+    editingExamId = null;
+    $('addExamForm').reset();
+    $('checksList').innerHTML = '';
+    $('checksBulkInput').value = '';
+    $('checksBulkError').textContent = '';
+    $('checksCsvFileInput').value = '';
+    $('checksCsvImportBtn').disabled = true;
+    $('checksCsvError').textContent = '';
+    pendingChecksCsvText = null;
+    $('examFormTitle').textContent = 'Create exam';
+    $('examSubmitBtn').textContent = 'Create exam';
+    $('examCancelEditBtn').style.display = 'none';
+    $('examError').textContent = '';
+  }
+
+  function startEditExam(examId) {
+    const ex = exams.find((e) => String(e.id) === String(examId));
+    if (!ex) return;
+
+    editingExamId = examId;
+    $('e_title').value = ex.title || '';
+    $('e_instructions').value = ex.instructions || '';
+    $('e_starter').value = ex.starter_code || '';
+    $('e_time').value = ex.time_limit_minutes || 60;
+    $('e_vlimit').value = ex.violation_limit || 5;
+
+    $('checksList').innerHTML = '';
+    (ex.checks || []).forEach((c) => addCheckRow(c));
+
+    $('examFormTitle').textContent = `Edit exam — ${ex.title}`;
+    $('examSubmitBtn').textContent = 'Save changes';
+    $('examCancelEditBtn').style.display = 'inline-block';
+    $('examError').textContent = '';
+    $('addExamForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function onAddExam(e) {
     e.preventDefault();
     $('examError').textContent = '';
+    const payload = {
+      title: $('e_title').value.trim(),
+      instructions: $('e_instructions').value,
+      starter_code: $('e_starter').value,
+      time_limit_minutes: parseInt($('e_time').value, 10) || 60,
+      violation_limit: parseInt($('e_vlimit').value, 10) || 5,
+      checks: collectChecks()
+    };
     try {
-      await api('/api/admin/exams', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: $('e_title').value.trim(),
-          instructions: $('e_instructions').value,
-          starter_code: $('e_starter').value,
-          time_limit_minutes: parseInt($('e_time').value, 10) || 60,
-          violation_limit: parseInt($('e_vlimit').value, 10) || 5,
-          checks: collectChecks()
-        })
-      });
-      $('addExamForm').reset();
-      $('checksList').innerHTML = '';
-      $('checksBulkInput').value = '';
-      $('checksBulkError').textContent = '';
+      if (editingExamId) {
+        await api(`/api/admin/exams/${editingExamId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      } else {
+        await api('/api/admin/exams', { method: 'POST', body: JSON.stringify(payload) });
+      }
+      resetExamForm();
       await loadExams();
     } catch (err) {
       $('examError').textContent = err.message;

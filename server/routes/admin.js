@@ -176,6 +176,28 @@ router.put('/exams/:id/checks', asyncHandler(async (req, res) => {
   res.json({ ok: true, checks });
 }));
 
+// Full edit of a previously created exam. Existing assignments aren't touched — a student who
+// already started keeps their in-progress code as-is (starter_code is only ever used to seed a
+// still-empty assignment, see student.js), and checks changes simply apply the next time a
+// submission is (re-)graded.
+router.put('/exams/:id', asyncHandler(async (req, res) => {
+  const { title, instructions, starter_code, time_limit_minutes, violation_limit, checks } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title required' });
+
+  const update = {
+    title,
+    instructions: instructions || '',
+    starter_code: starter_code || '',
+    time_limit_minutes: time_limit_minutes || 60,
+    violation_limit: violation_limit || 5,
+    checks: sanitizeChecks(checks)
+  };
+
+  const result = await Exam.updateOne({ _id: req.params.id }, { $set: update });
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}));
+
 router.delete('/exams/:id', asyncHandler(async (req, res) => {
   const id = req.params.id;
   const assignments = await ExamAssignment.find({ exam: id }).select('_id').lean();
