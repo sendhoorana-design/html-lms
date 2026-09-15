@@ -50,6 +50,8 @@
         <input id="s_username" required />
         <label>Password</label>
         <input id="s_password" type="password" required />
+        <label>Class / Section <span class="muted">(optional, e.g. "CSE A")</span></label>
+        <input id="s_section" />
         <button style="margin-top:16px;" type="submit">Create student</button>
         <div class="error-text" id="studentError"></div>
       </form>
@@ -58,8 +60,10 @@
     <div class="card mt-16" style="max-width:480px;">
       <h3 style="margin-top:0;">Import students from CSV</h3>
       <p class="muted" style="margin-top:0; font-size:13px;">
-        Header row required: <code>username,password,full_name</code> (<code>full_name</code> is optional).
-        Everyone imported this way is required to set a new password the first time they log in.
+        Header row required: <code>username,password,full_name</code> — <code>full_name</code> and
+        <code>section</code> are both optional (<code>section</code> is the class/section, e.g.
+        "CSE A"). Everyone imported this way is required to set a new password the first time
+        they log in.
       </p>
       <input type="file" id="csvFileInput" accept=".csv,text/csv" />
       <div style="display:flex; gap:10px; margin-top:12px;">
@@ -70,9 +74,17 @@
       <div id="csvResults" class="mt-16" style="font-size:13px; display:none;"></div>
     </div>
 
-    <h3 class="mt-16">All students</h3>
+    <div class="flex-between mt-16">
+      <h3 style="margin:0;">All students</h3>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label class="muted" style="margin:0; white-space:nowrap;">Filter by class</label>
+        <select id="studentsClassFilter" style="width:auto;">
+          <option value="">All classes</option>
+        </select>
+      </div>
+    </div>
     <table>
-      <thead><tr><th>Name</th><th>Username</th><th>Password</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Username</th><th>Class</th><th>Password</th><th>Created</th><th></th></tr></thead>
       <tbody id="studentsBody"></tbody>
     </table>
   </div>
@@ -220,6 +232,7 @@
 
     <div class="mt-16">
       <button class="secondary" id="unlockBtn">Unlock exam</button>
+      <button class="secondary" id="continueTestBtn">Continue test</button>
     </div>
   </div>
 </div>

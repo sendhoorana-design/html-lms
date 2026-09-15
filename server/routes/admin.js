@@ -22,21 +22,28 @@ router.get('/students', asyncHandler(async (req, res) => {
     id: s._id.toString(),
     username: s.username,
     full_name: s.full_name,
+    section: s.section || '',
     must_change_password: !!s.must_change_password,
     created_at: s.created_at
   })));
 }));
 
 router.post('/students', asyncHandler(async (req, res) => {
-  const { username, password, full_name } = req.body;
+  const { username, password, full_name, section } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
   const existing = await User.findOne({ username });
   if (existing) return res.status(409).json({ error: 'Username already exists' });
 
   const hash = bcrypt.hashSync(password, 10);
-  const user = await User.create({ username, password_hash: hash, role: 'student', full_name: full_name || username });
-  res.status(201).json({ id: user._id.toString(), username: user.username, full_name: user.full_name });
+  const user = await User.create({
+    username,
+    password_hash: hash,
+    role: 'student',
+    full_name: full_name || username,
+    section: (section || '').trim()
+  });
+  res.status(201).json({ id: user._id.toString(), username: user.username, full_name: user.full_name, section: user.section });
 }));
 
 // Bulk-create students from a CSV the admin uploaded. The file itself is parsed in the
@@ -59,6 +66,7 @@ router.post('/students/import', asyncHandler(async (req, res) => {
     const username = (row.username || '').trim();
     const password = (row.password || '').toString();
     const full_name = (row.full_name || '').trim() || username;
+    const section = (row.section || '').trim();
 
     if (!username || !password) {
       results.errors.push({ row: rowNum, username, error: 'Missing username or password' });
@@ -81,6 +89,7 @@ router.post('/students/import', asyncHandler(async (req, res) => {
         password_hash: hash,
         role: 'student',
         full_name,
+        section,
         must_change_password: true
       });
       results.created.push({ row: rowNum, username, id: user._id.toString() });
@@ -90,6 +99,15 @@ router.post('/students/import', asyncHandler(async (req, res) => {
   }
 
   res.json(results);
+}));
+
+// Set/change a student's class/section — mainly for students who were created (or imported)
+// before this field existed, or moved to a different section afterward.
+router.put('/students/:id/section', asyncHandler(async (req, res) => {
+  const section = (req.body.section || '').trim();
+  const result = await User.updateOne({ _id: req.params.id, role: 'student' }, { $set: { section } });
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, section });
 }));
 
 // Force a student to set a new password next time they log in — for a compromised or
@@ -331,6 +349,19 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
 
 router.post('/assignments/:id/unlock', asyncHandler(async (req, res) => {
   await ExamAssignment.updateOne({ _id: req.params.id }, { $set: { status: 'in_progress' } });
+  res.json({ ok: true });
+}));
+
+// Reopen an already-submitted exam so the student can keep working — e.g. they submitted early
+// by mistake, or ran out of time unfairly. Resets started_at to now so they get a fresh full
+// time limit rather than immediately hitting an already-expired one; their existing code and
+// any prior test results/score are left as-is until they submit again.
+router.post('/assignments/:id/continue', asyncHandler(async (req, res) => {
+  const result = await ExamAssignment.updateOne(
+    { _id: req.params.id, status: 'submitted' },
+    { $set: { status: 'in_progress', started_at: new Date() }, $unset: { submitted_at: '' } }
+  );
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found, or not currently submitted' });
   res.json({ ok: true });
 }));
 

@@ -42,6 +42,10 @@
     });
 
     $('addStudentForm').addEventListener('submit', onAddStudent);
+    $('studentsClassFilter').addEventListener('change', (e) => {
+      studentsClassFilterValue = e.target.value;
+      renderStudentsTable();
+    });
     $('addExamForm').addEventListener('submit', onAddExam);
     $('examCancelEditBtn').addEventListener('click', () => resetExamForm());
     $('addCheckBtn').addEventListener('click', () => addCheckRow());
@@ -80,15 +84,42 @@
 
   // ---------------- Students ----------------
 
+  let studentsClassFilterValue = '';
+
   async function loadStudents() {
     students = await api('/api/admin/students');
+    populateStudentsClassFilter();
+    renderStudentsTable();
+  }
+
+  function populateStudentsClassFilter() {
+    const select = $('studentsClassFilter');
+    const classes = Array.from(new Set(students.map((s) => s.section).filter((c) => c))).sort();
+    const prev = studentsClassFilterValue;
+    select.innerHTML = '<option value="">All classes</option>'
+      + classes.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    // Keep the current selection if that class still exists, otherwise fall back to "All".
+    if (classes.includes(prev)) {
+      select.value = prev;
+    } else {
+      studentsClassFilterValue = '';
+      select.value = '';
+    }
+  }
+
+  function renderStudentsTable() {
+    const visible = studentsClassFilterValue
+      ? students.filter((s) => s.section === studentsClassFilterValue)
+      : students;
+
     const tbody = $('studentsBody');
     tbody.innerHTML = '';
-    for (const s of students) {
+    for (const s of visible) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${escapeHtml(s.full_name)}</td>
         <td>${escapeHtml(s.username)}</td>
+        <td>${s.section ? escapeHtml(s.section) : '<span class="muted">—</span>'}</td>
         <td>
           ${s.must_change_password
             ? '<span class="badge pw_pending">Must change</span>'
@@ -96,6 +127,7 @@
         </td>
         <td>${escapeHtml((s.created_at || '').slice(0,16))}</td>
         <td>
+          <button class="secondary edit-class" data-id="${s.id}">Edit class</button>
           ${s.must_change_password ? '' : `<button class="secondary force-pw" data-id="${s.id}">Force change</button>`}
           <button class="secondary danger-del" data-id="${s.id}">Remove</button>
         </td>
@@ -113,6 +145,18 @@
       btn.addEventListener('click', async () => {
         if (!confirm('Require this student to set a new password next time they log in?')) return;
         await api(`/api/admin/students/${btn.dataset.id}/force-password-change`, { method: 'POST' });
+        await loadStudents();
+      });
+    });
+    tbody.querySelectorAll('.edit-class').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const student = students.find((s) => s.id === btn.dataset.id);
+        const next = window.prompt('Class / section for this student:', (student && student.section) || '');
+        if (next === null) return; // cancelled
+        await api(`/api/admin/students/${btn.dataset.id}/section`, {
+          method: 'PUT',
+          body: JSON.stringify({ section: next.trim() })
+        });
         await loadStudents();
       });
     });
@@ -157,6 +201,7 @@
     const usernameIdx = header.indexOf('username');
     const passwordIdx = header.indexOf('password');
     const fullNameIdx = header.indexOf('full_name');
+    const sectionIdx = header.indexOf('section');
     if (usernameIdx === -1 || passwordIdx === -1) {
       throw new Error('Header row must include "username" and "password" columns');
     }
@@ -167,7 +212,8 @@
       rows.push({
         username: fields[usernameIdx] || '',
         password: fields[passwordIdx] || '',
-        full_name: fullNameIdx !== -1 ? (fields[fullNameIdx] || '') : ''
+        full_name: fullNameIdx !== -1 ? (fields[fullNameIdx] || '') : '',
+        section: sectionIdx !== -1 ? (fields[sectionIdx] || '') : ''
       });
     }
     return rows;
@@ -220,7 +266,7 @@
     });
 
     $('csvSampleBtn').addEventListener('click', () => {
-      const sample = 'username,password,full_name\njdoe,Temp1234,Jane Doe\nasmith,Temp5678,Alex Smith\n';
+      const sample = 'username,password,full_name,section\njdoe,Temp1234,Jane Doe,CSE A\nasmith,Temp5678,Alex Smith,CSE B\n';
       const blob = new Blob([sample], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -256,7 +302,8 @@
         body: JSON.stringify({
           full_name: $('s_fullname').value.trim(),
           username: $('s_username').value.trim(),
-          password: $('s_password').value
+          password: $('s_password').value,
+          section: $('s_section').value.trim()
         })
       });
       $('addStudentForm').reset();
@@ -646,12 +693,54 @@
   function openAssignModal(examId) {
     assignExamId = examId;
     const list = $('assignStudentList');
-    list.innerHTML = students.map((s) => `
-      <div class="checkbox-row">
-        <input type="checkbox" value="${s.id}" id="chk_${s.id}" />
-        <label for="chk_${s.id}" style="margin:0;">${escapeHtml(s.full_name)} (${escapeHtml(s.username)})</label>
-      </div>
-    `).join('') || '<p class="muted">No students yet — add some in the Students tab.</p>';
+
+    if (students.length === 0) {
+      list.innerHTML = '<p class="muted">No students yet — add some in the Students tab.</p>';
+      $('assignModal').style.display = 'flex';
+      return;
+    }
+
+    // Group by class/section so a whole class can be picked in one click instead of checking
+    // students off a flat list. Students with no section fall into "Unassigned", sorted last.
+    const groups = new Map();
+    students.forEach((s) => {
+      const key = s.section || 'Unassigned';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
+    });
+    const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+      if (a === 'Unassigned') return 1;
+      if (b === 'Unassigned') return -1;
+      return a.localeCompare(b);
+    });
+
+    list.innerHTML = sortedKeys.map((key) => {
+      const groupStudents = groups.get(key);
+      return `
+        <div class="mt-16">
+          <div class="flex-between" style="margin-bottom:4px;">
+            <strong style="font-size:13px;">${escapeHtml(key)} <span class="muted">(${groupStudents.length})</span></strong>
+            <button type="button" class="secondary select-class-btn" data-group="${escapeHtml(key)}" style="padding:2px 8px; font-size:11px;">Select class</button>
+          </div>
+          ${groupStudents.map((s) => `
+            <div class="checkbox-row">
+              <input type="checkbox" value="${s.id}" class="assign-chk" data-group="${escapeHtml(key)}" id="chk_${s.id}" />
+              <label for="chk_${s.id}" style="margin:0;">${escapeHtml(s.full_name)} (${escapeHtml(s.username)})</label>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('.select-class-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const group = btn.dataset.group;
+        list.querySelectorAll('.assign-chk').forEach((el) => {
+          if (el.dataset.group === group) el.checked = true;
+        });
+      });
+    });
+
     $('assignModal').style.display = 'flex';
   }
 
@@ -680,12 +769,22 @@
         <td><span class="violation-count ${vClass}">${r.violation_count}</span></td>
         <td>${scoreBadgeHtml(r.score)}</td>
         <td class="muted">${r.submitted_at ? escapeHtml(r.submitted_at.slice(0,19)) : '—'}</td>
-        <td><button class="secondary view-sub-btn" data-id="${r.id}">View</button></td>
+        <td>
+          <button class="secondary view-sub-btn" data-id="${r.id}">View</button>
+          ${r.status === 'submitted' ? `<button class="secondary continue-sub-btn" data-id="${r.id}" data-name="${escapeHtml(r.full_name)}">Continue</button>` : ''}
+        </td>
       `;
       tbody.appendChild(tr);
     }
     tbody.querySelectorAll('.view-sub-btn').forEach((btn) => {
       btn.addEventListener('click', () => openDetail(btn.dataset.id));
+    });
+    tbody.querySelectorAll('.continue-sub-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Let ${btn.dataset.name} continue this exam? They'll get a fresh full time limit starting now.`)) return;
+        await api(`/api/admin/assignments/${btn.dataset.id}/continue`, { method: 'POST' });
+        await openSubmissionsModal(examId);
+      });
     });
     $('submissionsModal').style.display = 'flex';
   }
@@ -754,6 +853,16 @@
     $('unlockBtn').style.display = data.assignment.status === 'locked' ? 'inline-block' : 'none';
     $('unlockBtn').onclick = async () => {
       await api(`/api/admin/assignments/${assignmentId}/unlock`, { method: 'POST' });
+      $('detailModal').style.display = 'none';
+      await loadMonitor();
+    };
+
+    // Reopens a submitted exam so the student can keep working — resets the timer to a fresh
+    // full time limit, so warn before doing it.
+    $('continueTestBtn').style.display = data.assignment.status === 'submitted' ? 'inline-block' : 'none';
+    $('continueTestBtn').onclick = async () => {
+      if (!confirm(`Let ${data.assignment.full_name} continue this exam? They'll get a fresh full time limit starting now.`)) return;
+      await api(`/api/admin/assignments/${assignmentId}/continue`, { method: 'POST' });
       $('detailModal').style.display = 'none';
       await loadMonitor();
     };

@@ -178,7 +178,11 @@
     $('testResultsPane').style.display = 'none';
 
     if (data.assignment.started_at && data.assignment.time_limit_minutes) {
-      const started = new Date(data.assignment.started_at + 'Z');
+      // started_at comes from the server as a full ISO string that already ends in "Z" (or has
+      // an offset) — appending another "Z" here used to produce an Invalid Date, which is still
+      // a truthy object, so the timer's "no end time" guard never caught it and the countdown
+      // silently ran forever showing NaN:NaN instead of a real time.
+      const started = new Date(data.assignment.started_at);
       examEndsAt = new Date(started.getTime() + data.assignment.time_limit_minutes * 60000);
     } else {
       examEndsAt = null;
@@ -288,7 +292,9 @@
 
   function startTimer() {
     clearInterval(timerInterval);
-    if (!examEndsAt) { $('examTimer').textContent = ''; return; }
+    // Defensive: catches both "no end time set" and a malformed/unparseable date, since an
+    // Invalid Date object is still truthy and would otherwise slip past a plain !examEndsAt check.
+    if (!examEndsAt || isNaN(examEndsAt.getTime())) { $('examTimer').textContent = ''; return; }
     timerInterval = setInterval(() => {
       const remain = examEndsAt - new Date();
       if (remain <= 0) {

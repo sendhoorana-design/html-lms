@@ -62,11 +62,26 @@ exam doesn't touch students who've already started it — their in-progress code
 code only ever seeds an assignment that hasn't been opened yet; changes to checks simply apply the next time
 a submission is (re-)graded.
 
-## Bulk student creation via CSV, and forced password changes
+**Continuing a submitted exam:** if a student needs to keep working after submitting — submitted too early
+by mistake, ran out of time unfairly, whatever the reason — click **"Continue test"** in the assignment
+detail modal, or **"Continue"** next to their row in the Submissions list. This puts the exam back into
+`in_progress` and gives them a fresh full time limit starting from that moment (rather than immediately
+re-expiring against the original start time); their existing code, and any test results from the earlier
+submission, are left in place until they submit again.
+
+## Classes/sections and bulk student creation via CSV
+
+Students can optionally be tagged with a class/section (e.g. "CSE A") — set it in the "Add student" form,
+via the CSV import (see below), or after the fact with the **"Edit class"** button next to any student in
+the Students table. The Students table has a class filter dropdown, and the **"Assign exam to students"**
+dialog groups students by class with a **"Select class"** button per group, so you can assign a whole
+section in one click instead of checking students off a flat list (the existing global "Select all"/"Clear
+all" buttons still work across every class at once). Students with no class set are grouped under
+"Unassigned".
 
 Under Students → **Import students from CSV**, upload a CSV with a header row of
-`username,password,full_name` (`full_name` is optional — a "Download sample CSV" button gives you a
-template). Each row becomes a student account. Every account created this way has
+`username,password,full_name,section` (`full_name` and `section` are both optional — a "Download sample
+CSV" button gives you a template). Each row becomes a student account. Every account created this way has
 **`must_change_password`** set, so the student is forced onto a "set a new password" screen the moment
 they log in with the temporary password from the CSV — they can't reach anything else in the app until
 they do (this is enforced on the server, not just hidden by the UI, so it can't be bypassed by calling the
