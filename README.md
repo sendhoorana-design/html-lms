@@ -79,6 +79,12 @@ section in one click instead of checking students off a flat list (the existing 
 all" buttons still work across every class at once). Students with no class set are grouped under
 "Unassigned".
 
+The **"Remove all"** button above the students table deletes in bulk instead of one at a time — it removes
+every student, or (if the class filter dropdown has a class selected) just that class, after a confirmation
+showing exactly how many accounts are about to go. Same cascade as removing a single student: their exam
+assignments, submitted code, and violation history are deleted along with the account, and it can't be
+undone.
+
 Under Students → **Import students from CSV**, upload a CSV with a header row of
 `username,password,full_name,section` (`full_name` and `section` are both optional — a "Download sample
 CSV" button gives you a template). Each row becomes a student account. Every account created this way has

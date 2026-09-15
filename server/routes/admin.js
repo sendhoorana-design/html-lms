@@ -131,6 +131,22 @@ router.delete('/students/:id', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Bulk remove students at once — e.g. clearing out a whole class, or every student, at the end
+// of a term. Same cascade as the single-student delete above, just batched. The set of ids to
+// remove is decided client-side (respecting whatever class filter is active there), not here.
+router.post('/students/bulk-delete', asyncHandler(async (req, res) => {
+  const { student_ids } = req.body;
+  if (!Array.isArray(student_ids) || student_ids.length === 0) {
+    return res.status(400).json({ error: 'student_ids array required' });
+  }
+  const assignments = await ExamAssignment.find({ student: { $in: student_ids } }).select('_id').lean();
+  const assignmentIds = assignments.map((a) => a._id);
+  await Violation.deleteMany({ assignment: { $in: assignmentIds } });
+  await ExamAssignment.deleteMany({ student: { $in: student_ids } });
+  const result = await User.deleteMany({ _id: { $in: student_ids }, role: 'student' });
+  res.json({ ok: true, deleted: result.deletedCount });
+}));
+
 // ---------- Exams ----------
 
 router.get('/exams', asyncHandler(async (req, res) => {

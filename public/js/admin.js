@@ -46,6 +46,7 @@
       studentsClassFilterValue = e.target.value;
       renderStudentsTable();
     });
+    $('removeAllStudentsBtn').addEventListener('click', onRemoveAllStudents);
     $('addExamForm').addEventListener('submit', onAddExam);
     $('examCancelEditBtn').addEventListener('click', () => resetExamForm());
     $('addCheckBtn').addEventListener('click', () => addCheckRow());
@@ -160,6 +161,40 @@
         await loadStudents();
       });
     });
+  }
+
+  // Removes either every student, or just the currently filtered class, depending on whether
+  // the class filter dropdown has a selection — so this one button covers both "wipe everyone
+  // at end of term" and "remove just this section" without needing two separate controls.
+  async function onRemoveAllStudents() {
+    const target = studentsClassFilterValue
+      ? students.filter((s) => s.section === studentsClassFilterValue)
+      : students;
+
+    if (target.length === 0) {
+      alert('No students to remove.');
+      return;
+    }
+
+    const scopeLabel = studentsClassFilterValue ? `class "${studentsClassFilterValue}"` : 'ALL classes';
+    const confirmed = confirm(
+      `Remove all ${target.length} student(s) in ${scopeLabel}? This cannot be undone — their exam ` +
+      `assignments and submission history will be deleted too.`
+    );
+    if (!confirmed) return;
+
+    $('removeAllStudentsBtn').disabled = true;
+    try {
+      await api('/api/admin/students/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ student_ids: target.map((s) => s.id) })
+      });
+      await loadStudents();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      $('removeAllStudentsBtn').disabled = false;
+    }
   }
 
   // ---------------- CSV import ----------------
