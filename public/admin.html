@@ -22,6 +22,7 @@
   <button class="tab-btn active" data-tab="monitor">Live Monitor</button>
   <button class="tab-btn" data-tab="students">Students</button>
   <button class="tab-btn" data-tab="exams">Exams</button>
+  <button class="tab-btn" data-tab="admins" id="adminsTabBtn" style="display:none;">Admin Requests</button>
 </div>
 
 <div class="container">
@@ -41,7 +42,11 @@
   <!-- STUDENTS -->
   <div id="tab-students" class="tab-panel" style="display:none;">
     <h2>Students</h2>
-    <div class="card" style="max-width:480px;">
+    <p class="muted" id="subAdminStudentsNote" style="display:none;">
+      Only the main admin can create, import, or remove students. The students below are the
+      ones assigned to you — you can still edit their class or force a password change.
+    </p>
+    <div class="card" style="max-width:480px;" id="addStudentCard">
       <h3 style="margin-top:0;">Add student</h3>
       <form id="addStudentForm">
         <label>Full name</label>
@@ -57,7 +62,7 @@
       </form>
     </div>
 
-    <div class="card mt-16" style="max-width:480px;">
+    <div class="card mt-16" style="max-width:480px;" id="csvImportCard">
       <h3 style="margin-top:0;">Import students from CSV</h3>
       <p class="muted" style="margin-top:0; font-size:13px;">
         Header row required: <code>username,password,full_name</code> — <code>full_name</code> and
@@ -74,18 +79,24 @@
       <div id="csvResults" class="mt-16" style="font-size:13px; display:none;"></div>
     </div>
 
-    <div class="flex-between mt-16">
+    <div class="flex-between mt-16" style="flex-wrap:wrap; gap:8px;">
       <h3 style="margin:0;">All students</h3>
-      <div style="display:flex; align-items:center; gap:8px;">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
         <label class="muted" style="margin:0; white-space:nowrap;">Filter by class</label>
         <select id="studentsClassFilter" style="width:auto;">
           <option value="">All classes</option>
         </select>
-        <button type="button" class="secondary" id="removeAllStudentsBtn">Remove all</button>
+        <span id="superAdminStudentControls" style="display:none; gap:8px; align-items:center;">
+          <select id="bulkAssignAdminSelect" style="width:auto;">
+            <option value="">Assign filtered to admin…</option>
+          </select>
+          <button type="button" class="secondary" id="bulkAssignAdminBtn">Assign</button>
+          <button type="button" class="secondary" id="removeAllStudentsBtn">Remove all</button>
+        </span>
       </div>
     </div>
     <table>
-      <thead><tr><th>Name</th><th>Username</th><th>Class</th><th>Password</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Username</th><th>Class</th><th id="managedByHeader" style="display:none;">Managed by</th><th>Password</th><th>Created</th><th></th></tr></thead>
       <tbody id="studentsBody"></tbody>
     </table>
   </div>
@@ -162,6 +173,20 @@
     <table>
       <thead><tr><th>Title</th><th>Time limit</th><th>Created</th><th></th></tr></thead>
       <tbody id="examsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- ADMIN REQUESTS (main admin only) -->
+  <div id="tab-admins" class="tab-panel" style="display:none;">
+    <h2>Admin Requests</h2>
+    <p class="muted" style="margin-top:0;">
+      Anyone who signs up as an admin from the login page lands here as "Pending" and can't log
+      in until you approve them. Approved admins can create and assign exams and monitor their
+      own students, but only you assign which students belong to which admin (Students tab).
+    </p>
+    <table>
+      <thead><tr><th>Name</th><th>Username</th><th>Status</th><th>Requested</th><th></th></tr></thead>
+      <tbody id="adminsBody"></tbody>
     </table>
   </div>
 

@@ -3,6 +3,8 @@
   let socket = null;
   let students = [];
   let exams = [];
+  let admins = [];
+  let isSuperAdmin = false;
   let detailCM = null;
 
   const $ = (id) => document.getElementById(id);
@@ -31,7 +33,9 @@
       if (me.role !== 'admin') { window.location.href = '/login.html'; return; }
     } catch (e) { return; }
 
-    $('whoami').textContent = `${me.full_name} (${me.username})`;
+    isSuperAdmin = !!me.is_super_admin;
+
+    $('whoami').textContent = `${me.full_name} (${me.username})${isSuperAdmin ? ' — Main admin' : ''}`;
     $('logoutBtn').addEventListener('click', async () => {
       await api('/api/auth/logout', { method: 'POST' });
       window.location.href = '/login.html';
@@ -41,12 +45,23 @@
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
 
+    // Main-admin-only UI: creating/importing/removing students, bulk-assigning students to a
+    // sub-admin, and the Admin Requests tab. A sub-admin only ever works with the students
+    // already handed to them.
+    $('adminsTabBtn').style.display = isSuperAdmin ? '' : 'none';
+    $('addStudentCard').style.display = isSuperAdmin ? '' : 'none';
+    $('csvImportCard').style.display = isSuperAdmin ? '' : 'none';
+    $('subAdminStudentsNote').style.display = isSuperAdmin ? 'none' : 'block';
+    $('managedByHeader').style.display = isSuperAdmin ? '' : 'none';
+    $('superAdminStudentControls').style.display = isSuperAdmin ? 'inline-flex' : 'none';
+
     $('addStudentForm').addEventListener('submit', onAddStudent);
     $('studentsClassFilter').addEventListener('change', (e) => {
       studentsClassFilterValue = e.target.value;
       renderStudentsTable();
     });
     $('removeAllStudentsBtn').addEventListener('click', onRemoveAllStudents);
+    $('bulkAssignAdminBtn').addEventListener('click', onBulkAssignAdmin);
     $('addExamForm').addEventListener('submit', onAddExam);
     $('examCancelEditBtn').addEventListener('click', () => resetExamForm());
     $('addCheckBtn').addEventListener('click', () => addCheckRow());
@@ -68,6 +83,9 @@
     socket.on('heartbeat', () => { loadMonitor(); });
     socket.on('status_change', () => { loadMonitor(); });
 
+    // Admins list is needed to render student "Managed by" names and the admin dropdown, so
+    // load it before the students table (super admin only — a sub-admin can't call this route).
+    if (isSuperAdmin) await loadAdmins();
     await Promise.all([loadStudents(), loadExams(), loadMonitor()]);
     setInterval(loadMonitor, 10000);
   }
@@ -108,6 +126,24 @@
     }
   }
 
+  // A per-student <select> of approved sub-admins (plus "Unassigned"), for reassigning one
+  // student at a time — the bulk "Assign filtered to admin" control above handles whole classes,
+  // this handles the one-off case without needing to fiddle with the class filter to isolate a
+  // single student.
+  function managerSelectHtml(s) {
+    const approved = admins.filter((a) => a.admin_status === 'approved' && !a.is_super_admin);
+    const options = ['<option value="">Unassigned</option>']
+      .concat(approved.map((a) => `<option value="${a.id}" ${a.id === s.managing_admin ? 'selected' : ''}>${escapeHtml(a.full_name)} (${escapeHtml(a.username)})</option>`));
+    // If the student's current manager isn't in the approved list (e.g. that admin was since
+    // rejected/removed), still show something sensible instead of silently switching to
+    // "Unassigned" under them.
+    if (s.managing_admin && !approved.some((a) => a.id === s.managing_admin)) {
+      options.push(`<option value="${s.managing_admin}" selected>(unknown admin)</option>`);
+    }
+    if (!s.managing_admin) options[0] = '<option value="" selected>Unassigned</option>';
+    return `<select class="manager-select" data-id="${s.id}" style="width:auto; font-size:12px; padding:4px 6px;">${options.join('')}</select>`;
+  }
+
   function renderStudentsTable() {
     const visible = studentsClassFilterValue
       ? students.filter((s) => s.section === studentsClassFilterValue)
@@ -121,6 +157,7 @@
         <td>${escapeHtml(s.full_name)}</td>
         <td>${escapeHtml(s.username)}</td>
         <td>${s.section ? escapeHtml(s.section) : '<span class="muted">—</span>'}</td>
+        ${isSuperAdmin ? `<td>${managerSelectHtml(s)}</td>` : ''}
         <td>
           ${s.must_change_password
             ? '<span class="badge pw_pending">Must change</span>'
@@ -130,7 +167,7 @@
         <td>
           <button class="secondary edit-class" data-id="${s.id}">Edit class</button>
           ${s.must_change_password ? '' : `<button class="secondary force-pw" data-id="${s.id}">Force change</button>`}
-          <button class="secondary danger-del" data-id="${s.id}">Remove</button>
+          ${isSuperAdmin ? `<button class="secondary danger-del" data-id="${s.id}">Remove</button>` : ''}
         </td>
       `;
       tbody.appendChild(tr);
@@ -159,6 +196,21 @@
           body: JSON.stringify({ section: next.trim() })
         });
         await loadStudents();
+      });
+    });
+    tbody.querySelectorAll('.manager-select').forEach((sel) => {
+      sel.addEventListener('change', async () => {
+        sel.disabled = true;
+        try {
+          await api(`/api/admin/students/${sel.dataset.id}/manager`, {
+            method: 'PUT',
+            body: JSON.stringify({ admin_id: sel.value })
+          });
+          await loadStudents();
+        } catch (err) {
+          alert(err.message);
+          sel.disabled = false;
+        }
       });
     });
   }
@@ -195,6 +247,118 @@
     } finally {
       $('removeAllStudentsBtn').disabled = false;
     }
+  }
+
+  // Hands the currently filtered class (or every student, with no filter) to whichever admin is
+  // picked in the dropdown — the main admin's way of deciding which students a sub-admin can
+  // see and assign exams to. "Unassign" clears managing_admin back to null.
+  async function onBulkAssignAdmin() {
+    const adminId = $('bulkAssignAdminSelect').value;
+    if (!adminId) {
+      alert('Choose an admin (or "Unassign") first.');
+      return;
+    }
+
+    const target = studentsClassFilterValue
+      ? students.filter((s) => s.section === studentsClassFilterValue)
+      : students;
+    if (target.length === 0) {
+      alert('No students to assign.');
+      return;
+    }
+
+    const scopeLabel = studentsClassFilterValue ? `class "${studentsClassFilterValue}"` : 'ALL classes';
+    const targetAdmin = admins.find((a) => a.id === adminId);
+    const adminLabel = adminId === '__unassign__' ? 'Unassigned' : (targetAdmin ? `${targetAdmin.full_name} (${targetAdmin.username})` : 'that admin');
+    if (!confirm(`Assign all ${target.length} student(s) in ${scopeLabel} to ${adminLabel}?`)) return;
+
+    $('bulkAssignAdminBtn').disabled = true;
+    try {
+      await api('/api/admin/students/bulk-assign-manager', {
+        method: 'POST',
+        body: JSON.stringify({
+          student_ids: target.map((s) => s.id),
+          admin_id: adminId === '__unassign__' ? '' : adminId
+        })
+      });
+      await loadStudents();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      $('bulkAssignAdminBtn').disabled = false;
+    }
+  }
+
+  // ---------------- Admin accounts (main admin only) ----------------
+
+  async function loadAdmins() {
+    admins = await api('/api/admin/admins');
+    renderAdminsTable();
+    populateBulkAssignAdminSelect();
+  }
+
+  function populateBulkAssignAdminSelect() {
+    const select = $('bulkAssignAdminSelect');
+    const approved = admins.filter((a) => a.admin_status === 'approved' && !a.is_super_admin);
+    select.innerHTML = '<option value="">Assign filtered to admin…</option>'
+      + approved.map((a) => `<option value="${a.id}">${escapeHtml(a.full_name)} (${escapeHtml(a.username)})</option>`).join('')
+      + '<option value="__unassign__">Unassign (no admin)</option>';
+  }
+
+  function renderAdminsTable() {
+    const tbody = $('adminsBody');
+    tbody.innerHTML = '';
+    for (const a of admins) {
+      const tr = document.createElement('tr');
+      const statusBadge = a.is_super_admin
+        ? '<span class="badge approved">Main admin</span>'
+        : `<span class="badge ${a.admin_status}">${a.admin_status}</span>`;
+
+      let actions = '';
+      if (!a.is_super_admin) {
+        if (a.admin_status === 'pending') {
+          actions = `<button class="secondary approve-admin" data-id="${a.id}">Approve</button>
+                     <button class="secondary reject-admin" data-id="${a.id}">Reject</button>`;
+        } else if (a.admin_status === 'approved') {
+          actions = `<button class="secondary reject-admin" data-id="${a.id}">Revoke</button>
+                     <button class="secondary remove-admin" data-id="${a.id}">Remove</button>`;
+        } else {
+          actions = `<button class="secondary approve-admin" data-id="${a.id}">Approve</button>
+                     <button class="secondary remove-admin" data-id="${a.id}">Remove</button>`;
+        }
+      }
+
+      tr.innerHTML = `
+        <td>${escapeHtml(a.full_name)}</td>
+        <td>${escapeHtml(a.username)}</td>
+        <td>${statusBadge}</td>
+        <td class="muted">${escapeHtml((a.created_at || '').slice(0,16))}</td>
+        <td>${actions}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    tbody.querySelectorAll('.approve-admin').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        await api(`/api/admin/admins/${btn.dataset.id}/approve`, { method: 'POST' });
+        await loadAdmins();
+      });
+    });
+    tbody.querySelectorAll('.reject-admin').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Reject/revoke this admin? They will no longer be able to log in.')) return;
+        await api(`/api/admin/admins/${btn.dataset.id}/reject`, { method: 'POST' });
+        await loadAdmins();
+      });
+    });
+    tbody.querySelectorAll('.remove-admin').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Remove this admin account? Any students they managed will become unassigned.')) return;
+        await api(`/api/admin/admins/${btn.dataset.id}`, { method: 'DELETE' });
+        await loadAdmins();
+        await loadStudents();
+      });
+    });
   }
 
   // ---------------- CSV import ----------------
@@ -356,6 +520,9 @@
     tbody.innerHTML = '';
     for (const ex of exams) {
       const tr = document.createElement('tr');
+      // A sub-admin can assign/view submissions for any exam they can see (the main admin's or
+      // their own), but can only edit/delete exams they created themselves.
+      const canEdit = isSuperAdmin || ex.created_by === me.id;
       tr.innerHTML = `
         <td>${escapeHtml(ex.title)}</td>
         <td>${ex.time_limit_minutes} min</td>
@@ -363,8 +530,8 @@
         <td>
           <button class="secondary assign-btn" data-id="${ex.id}">Assign</button>
           <button class="secondary submissions-btn" data-id="${ex.id}">Submissions</button>
-          <button class="secondary edit-exam-btn" data-id="${ex.id}">Edit</button>
-          <button class="secondary danger-exam" data-id="${ex.id}">Delete</button>
+          ${canEdit ? `<button class="secondary edit-exam-btn" data-id="${ex.id}">Edit</button>` : ''}
+          ${canEdit ? `<button class="secondary danger-exam" data-id="${ex.id}">Delete</button>` : ''}
         </td>
       `;
       tbody.appendChild(tr);

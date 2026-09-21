@@ -21,6 +21,34 @@
     <div class="error-text" id="errorText"></div>
 
     <button type="submit" style="width:100%; margin-top: 8px;">Sign in</button>
+    <p class="sub" style="margin:14px 0 0; text-align:center;">
+      <a href="#" id="showSignupLink">Sign up as an admin</a>
+    </p>
+  </form>
+
+  <form class="card login-card" id="signupForm" style="display:none;">
+    <h1>Admin sign up</h1>
+    <p class="sub">
+      Your request goes to the main admin for approval — you won't be able to sign in until
+      they accept it.
+    </p>
+
+    <label for="su_fullname">Full name</label>
+    <input id="su_fullname" required />
+
+    <label for="su_username">Username</label>
+    <input id="su_username" autocomplete="username" required />
+
+    <label for="su_password">Password</label>
+    <input id="su_password" type="password" autocomplete="new-password" minlength="6" required />
+
+    <div class="error-text" id="signupError"></div>
+    <div id="signupSuccess" class="sub" style="display:none; color:var(--accent-2);"></div>
+
+    <button type="submit" style="width:100%; margin-top: 8px;" id="signupSubmitBtn">Request admin account</button>
+    <p class="sub" style="margin:14px 0 0; text-align:center;">
+      <a href="#" id="showLoginLink">Back to sign in</a>
+    </p>
   </form>
 </div>
 
@@ -49,6 +77,50 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     } else {
       window.location.href = '/student.html';
     }
+  } catch (err) {
+    errorText.textContent = 'Could not reach server';
+  }
+});
+
+const loginForm = document.getElementById('loginForm');
+const signupForm = document.getElementById('signupForm');
+
+document.getElementById('showSignupLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  loginForm.style.display = 'none';
+  signupForm.style.display = 'block';
+});
+document.getElementById('showLoginLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  signupForm.style.display = 'none';
+  loginForm.style.display = 'block';
+});
+
+signupForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const full_name = document.getElementById('su_fullname').value.trim();
+  const username = document.getElementById('su_username').value.trim();
+  const password = document.getElementById('su_password').value;
+  const errorText = document.getElementById('signupError');
+  const successText = document.getElementById('signupSuccess');
+  errorText.textContent = '';
+  successText.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/auth/admin-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full_name, username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errorText.textContent = data.error || 'Sign up failed';
+      return;
+    }
+    signupForm.reset();
+    document.getElementById('signupSubmitBtn').disabled = true;
+    successText.textContent = data.message || 'Request submitted — wait for the main admin to approve it.';
+    successText.style.display = 'block';
   } catch (err) {
     errorText.textContent = 'Could not reach server';
   }

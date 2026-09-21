@@ -39,9 +39,11 @@ username: admin
 password: admin123
 ```
 
-**Change this password before real use** — easiest way is to create a new admin user directly in the database
-(there's no "create admin" UI on purpose, to avoid students self-promoting) and retire the seeded one, or edit
-the `users` collection directly with a new bcrypt hash.
+**Change this password before real use.** The seeded `admin` account is the **main/super admin** — the only
+account that can approve new admin signups, and the only one with unrestricted access to every student and
+exam (see "Admin roles" below). Change its password by updating it directly in the `users` collection with
+a new bcrypt hash, since there's no self-service "change my password" flow for admins the way there is for
+students.
 
 Open `http://localhost:4000/login.html` to sign in. Admins land on `/admin.html`, students on `/student.html`.
 
@@ -68,6 +70,50 @@ detail modal, or **"Continue"** next to their row in the Submissions list. This 
 `in_progress` and gives them a fresh full time limit starting from that moment (rather than immediately
 re-expiring against the original start time); their existing code, and any test results from the earlier
 submission, are left in place until they submit again.
+
+## Admin roles: main admin vs. sub-admins
+
+There are two kinds of admin account:
+
+- **Main/super admin** — the seeded `admin` account (or anyone else later flipped to `is_super_admin: true`
+  directly in the database). Sees and manages every student and every exam, approves or rejects new admin
+  signups, and decides which students each sub-admin can see.
+- **Sub-admin** — anyone who signs up from the **"Sign up as an admin"** link on the login page. Their
+  account starts **pending** and can't log in at all until the main admin approves it from the **Admin
+  Requests** tab (main admin only). Once approved, a sub-admin can create exams, assign exams (their own or
+  the main admin's) to students, and monitor those students live — but only for students the main admin has
+  explicitly handed to them. A sub-admin cannot create, import, or remove student accounts, cannot see or
+  touch another sub-admin's exams or students, and the "Admin Requests" tab doesn't exist for them at all.
+
+**Approving a sub-admin:** Admin Requests tab → **Approve** next to their pending request (or **Reject** to
+block them, or **Remove** to delete a rejected/approved account entirely — the main admin account itself
+can never be removed this way). A rejected admin can be approved later if you change your mind.
+
+**Assigning students to a sub-admin:** in the Students tab (main admin only), the **"Managed by"** column
+has a dropdown right on each student's row — change it and the reassignment saves immediately, no separate
+save step. For reassigning a whole class at once instead of one row at a time, use the "Filter by class"
+dropdown (or leave it on "All classes") plus the admin dropdown and **"Assign"** button above the table —
+every currently-filtered student gets handed to that admin in one action; pick "Unassign (no admin)" to
+take students back. Sub-admins don't see the "Managed by" column or these controls at all — their own
+Students tab is already filtered down to just their assigned students, with a note explaining why
+creation/import/removal aren't available there.
+
+**What a sub-admin can and can't do, in one place:**
+
+- Can create a new exam (it's theirs — only they and the main admin can edit or delete it).
+- Can assign any exam they can see (their own, or any exam created by the main admin) to any student
+  assigned to them, and only to those students.
+- Can monitor, view submission detail, unlock, "Continue test", and re-run auto-grading for their own
+  students only — attempting any of this against a student who isn't theirs is rejected by the server, not
+  just hidden in the UI.
+- Cannot edit or delete an exam created by the main admin or by another sub-admin.
+- Cannot create, CSV-import, bulk-remove, or single-remove student accounts, and cannot reassign which
+  admin manages a student — all of that is main-admin-only.
+
+One minor real-time quirk worth knowing: the Live Monitor tab's "flash red on new violation" effect is
+triggered by a shared notification to every logged-in admin, so a sub-admin's tab can flash for a violation
+by a student that isn't theirs — no data about that student is actually shown to them (the monitor list
+itself is correctly filtered), it's just the flash/refresh trigger being unscoped.
 
 ## Classes/sections and bulk student creation via CSV
 
@@ -268,9 +314,13 @@ proxy (Caddy or nginx) in front for HTTPS.
 Four MongoDB collections (see `server/models/`):
 
 - `User` — admins and students, role-based, bcrypt-hashed passwords, plus a `must_change_password` flag
-  used by CSV imports and the admin's "Force change" action
-- `Exam` — title, instructions, starter code, time limit, violation limit, and an optional array of
-  auto-grading `checks`
+  used by CSV imports and the admin's "Force change" action. Admin-only: `is_super_admin` (true only for
+  the main admin) and `admin_status` (`pending` / `approved` / `rejected`, gates login for self-signed-up
+  sub-admins). Student-only: `managing_admin`, the sub-admin this student is currently assigned to
+  (`null` = unassigned/main-admin-only).
+- `Exam` — title, instructions, starter code, time limit, violation limit, an optional array of
+  auto-grading `checks`, and `created_by` (which admin made it — determines edit/delete rights for
+  sub-admins; see "Admin roles" above)
 - `ExamAssignment` — one document per (student, exam) pair; tracks status (`not_started` / `in_progress` /
   `submitted` / `locked`), timestamps, **and the student's current/final code directly on the document** —
   there's no separate "submissions" collection since it's always a strict 1:1 relationship. Also stores
