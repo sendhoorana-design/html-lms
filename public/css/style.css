@@ -221,6 +221,13 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .mt-16 { margin-top: 16px; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
 
+.app-footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 20px 16px 24px;
+}
+
 /* Disable text selection everywhere on the exam page except inside the code editor. This is a
    deterrent against the "long-press a word → select → search" flow (the older, selection-based
    version of on-device search assistants). It does NOT and cannot block screen-drawing search
