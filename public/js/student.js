@@ -59,6 +59,9 @@
       practiceCm.setValue('');
       savePracticeCode();
     });
+    $('practiceSaveBtn').addEventListener('click', onPracticeSaveAs);
+    $('practiceLoadBtn').addEventListener('click', onPracticeLoad);
+    $('practiceDeleteBtn').addEventListener('click', onPracticeDelete);
 
     socket = io({ withCredentials: true });
 
@@ -237,6 +240,92 @@
     return `html-lms-practice-code:${me ? me.username : 'anon'}`;
   }
 
+  // Named saves are a separate localStorage slot from the auto-saved "current draft" above —
+  // each is a distinct snapshot the student named themselves, so switching between them (or
+  // resetting the scratch area) never touches the others.
+  function practiceSavesKey() {
+    return `html-lms-practice-saves:${me ? me.username : 'anon'}`;
+  }
+
+  function loadPracticeSaves() {
+    try {
+      const raw = localStorage.getItem(practiceSavesKey());
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writePracticeSaves(saves) {
+    try { localStorage.setItem(practiceSavesKey(), JSON.stringify(saves)); } catch (e) { /* storage unavailable, silently skip */ }
+  }
+
+  function refreshPracticeSavedSelect(selectName) {
+    const saves = loadPracticeSaves().sort((a, b) => a.name.localeCompare(b.name));
+    const select = $('practiceSavedSelect');
+    select.innerHTML = '<option value="">— none —</option>'
+      + saves.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join('');
+    if (selectName) select.value = selectName;
+  }
+
+  function onPracticeSaveAs() {
+    const nameInput = $('practiceSaveName');
+    const name = nameInput.value.trim();
+    const statusEl = $('practiceSaveStatus');
+    if (!name) {
+      statusEl.textContent = 'Enter a name first.';
+      return;
+    }
+    const saves = loadPracticeSaves();
+    const existingIdx = saves.findIndex((s) => s.name === name);
+    if (existingIdx !== -1 && !confirm(`A save named "${name}" already exists. Overwrite it?`)) {
+      return;
+    }
+    const entry = { name, code: practiceCm.getValue(), saved_at: new Date().toISOString() };
+    if (existingIdx !== -1) saves[existingIdx] = entry; else saves.push(entry);
+    writePracticeSaves(saves);
+    refreshPracticeSavedSelect(name);
+    statusEl.textContent = `Saved as "${name}".`;
+    setTimeout(() => { if (statusEl.textContent === `Saved as "${name}".`) statusEl.textContent = ''; }, 3000);
+  }
+
+  function onPracticeLoad() {
+    const name = $('practiceSavedSelect').value;
+    const statusEl = $('practiceSaveStatus');
+    if (!name) {
+      statusEl.textContent = 'Pick a saved session first.';
+      return;
+    }
+    const saves = loadPracticeSaves();
+    const entry = saves.find((s) => s.name === name);
+    if (!entry) {
+      statusEl.textContent = 'That save no longer exists.';
+      refreshPracticeSavedSelect();
+      return;
+    }
+    practiceCm.setValue(entry.code || '');
+    updatePracticePreview();
+    savePracticeCode(); // also becomes the new scratch draft
+    $('practiceSaveName').value = name;
+    statusEl.textContent = `Loaded "${name}".`;
+    setTimeout(() => { if (statusEl.textContent === `Loaded "${name}".`) statusEl.textContent = ''; }, 3000);
+  }
+
+  function onPracticeDelete() {
+    const name = $('practiceSavedSelect').value;
+    const statusEl = $('practiceSaveStatus');
+    if (!name) {
+      statusEl.textContent = 'Pick a saved session first.';
+      return;
+    }
+    if (!confirm(`Delete the saved session "${name}"? This can't be undone.`)) return;
+    const saves = loadPracticeSaves().filter((s) => s.name !== name);
+    writePracticeSaves(saves);
+    refreshPracticeSavedSelect();
+    statusEl.textContent = `Deleted "${name}".`;
+  }
+
   const PRACTICE_DEFAULT_CODE =
     '<!DOCTYPE html>\n<html>\n<head>\n  <title>Practice</title>\n</head>\n<body>\n  <h1>Try something out!</h1>\n</body>\n</html>';
 
@@ -267,6 +356,10 @@
       clearTimeout(practiceSaveTimer);
       practiceSaveTimer = setTimeout(savePracticeCode, 500);
     });
+
+    $('practiceSaveName').value = '';
+    $('practiceSaveStatus').textContent = '';
+    refreshPracticeSavedSelect();
   }
 
   function updatePracticePreview() {

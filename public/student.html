@@ -83,6 +83,21 @@
       <button class="secondary" id="practiceBackBtn">Back</button>
     </div>
   </div>
+  <div class="editor-header" style="flex-wrap:wrap; gap:8px;">
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input id="practiceSaveName" type="text" placeholder="Name this save (e.g. Ex 2 draft)" style="width:220px;" />
+      <button class="secondary" id="practiceSaveBtn">Save as…</button>
+      <span class="muted" id="practiceSaveStatus" style="font-size:12px;"></span>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <label class="muted" style="margin:0; font-size:12px;">Saved:</label>
+      <select id="practiceSavedSelect" style="width:200px;">
+        <option value="">— none —</option>
+      </select>
+      <button class="secondary" id="practiceLoadBtn">Load</button>
+      <button class="secondary danger" id="practiceDeleteBtn">Delete</button>
+    </div>
+  </div>
   <div class="split">
     <div class="pane left">
       <div class="pane-header">HTML — write your code</div>
