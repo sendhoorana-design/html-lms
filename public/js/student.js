@@ -8,6 +8,10 @@
   let timerInterval = null;
   let examEndsAt = null;
   let proctoringActive = false;
+  let currentInstructions = '';
+  let currentRequirements = [];
+  let practiceCm = null;
+  let practiceSaveTimer = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -46,6 +50,15 @@
     $('changePasswordBtn').addEventListener('click', () => openPasswordModal(false));
     $('passwordCancelBtn').addEventListener('click', () => closePasswordModal());
     $('passwordForm').addEventListener('submit', onChangePasswordSubmit);
+    $('instructionsBtn').addEventListener('click', openInstructionsModal);
+    $('instructionsCloseBtn').addEventListener('click', () => { $('instructionsModal').style.display = 'none'; });
+    $('practiceBtn').addEventListener('click', openPractice);
+    $('practiceBackBtn').addEventListener('click', () => { showAssignmentList(); });
+    $('practiceResetBtn').addEventListener('click', () => {
+      if (!confirm('Clear all code in the practice sandbox?')) return;
+      practiceCm.setValue('');
+      savePracticeCode();
+    });
 
     socket = io({ withCredentials: true });
 
@@ -112,6 +125,7 @@
     stopProctoring();
     currentAssignmentId = null;
     $('examView').style.display = 'none';
+    $('practiceView').style.display = 'none';
     $('lockOverlay').style.display = 'none';
     $('fullscreenPrompt').style.display = 'none';
     $('violationsPane').style.display = 'none';
@@ -158,6 +172,11 @@
     $('assignmentList').style.display = 'none';
     $('examView').style.display = 'flex';
     $('examTitle').textContent = data.assignment.title;
+    currentInstructions = data.assignment.instructions || '';
+    currentRequirements = data.requirements || [];
+
+    const proctoringEnabled = data.assignment.proctoring_enabled !== false;
+    $('proctoringOffBadge').style.display = proctoringEnabled ? 'none' : 'inline-block';
 
     if (data.readOnly) {
       // Past submission or locked exam: show saved code + re-rendered output, read-only, no proctoring.
@@ -189,8 +208,73 @@
     }
 
     initEditor(data.code || '', false);
-    startProctoring();
+    if (proctoringEnabled) startProctoring();
     startTimer();
+
+    // Open the instructions modal automatically the first time a student enters an exam, so the
+    // problem description isn't something they have to know to go looking for — after that it's
+    // just available via the "Instructions" button.
+    openInstructionsModal();
+  }
+
+  function openInstructionsModal() {
+    $('instructionsModalTitle').textContent = $('examTitle').textContent || 'Instructions';
+    $('instructionsModalBody').textContent = currentInstructions || 'No instructions were provided for this exam.';
+    const list = $('instructionsRequirementsList');
+    if (currentRequirements.length) {
+      $('instructionsRequirementsWrap').style.display = 'block';
+      list.innerHTML = currentRequirements.map((r) => `<li>${escapeHtml(r)}</li>`).join('');
+    } else {
+      $('instructionsRequirementsWrap').style.display = 'none';
+      list.innerHTML = '';
+    }
+    $('instructionsModal').style.display = 'flex';
+  }
+
+  // ---------------- Practice sandbox ----------------
+
+  function practiceStorageKey() {
+    return `html-lms-practice-code:${me ? me.username : 'anon'}`;
+  }
+
+  const PRACTICE_DEFAULT_CODE =
+    '<!DOCTYPE html>\n<html>\n<head>\n  <title>Practice</title>\n</head>\n<body>\n  <h1>Try something out!</h1>\n</body>\n</html>';
+
+  function openPractice() {
+    stopProctoring();
+    currentAssignmentId = null;
+    $('assignmentList').style.display = 'none';
+    $('examView').style.display = 'none';
+    $('practiceView').style.display = 'flex';
+
+    let saved = '';
+    try { saved = localStorage.getItem(practiceStorageKey()) || ''; } catch (e) { /* storage unavailable */ }
+
+    const textarea = $('practiceCodeArea');
+    textarea.value = saved || PRACTICE_DEFAULT_CODE;
+    if (practiceCm) { practiceCm.toTextArea(); practiceCm = null; }
+    practiceCm = CodeMirror.fromTextArea(textarea, {
+      mode: 'htmlmixed',
+      theme: 'dracula',
+      lineNumbers: true,
+      lineWrapping: true,
+      tabSize: 2,
+      autoCloseBrackets: true
+    });
+    updatePracticePreview();
+    practiceCm.on('change', () => {
+      updatePracticePreview();
+      clearTimeout(practiceSaveTimer);
+      practiceSaveTimer = setTimeout(savePracticeCode, 500);
+    });
+  }
+
+  function updatePracticePreview() {
+    $('practicePreview').srcdoc = practiceCm.getValue();
+  }
+
+  function savePracticeCode() {
+    try { localStorage.setItem(practiceStorageKey(), practiceCm.getValue()); } catch (e) { /* storage unavailable, silently skip */ }
   }
 
   function renderViolations(violations) {

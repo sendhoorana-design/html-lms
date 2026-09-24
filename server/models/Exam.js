@@ -24,6 +24,11 @@ const examSchema = new mongoose.Schema({
   },
   time_limit_minutes: { type: Number, default: 60 },
   violation_limit: { type: Number, default: 5 },
+  // When false, the exam runs without any proctoring: no fullscreen requirement, no tab-switch/
+  // copy-paste/devtools/back-button detection, no violation logging or auto-lock. Everything else
+  // (timer, auto-grading, submission) still applies. Defaults to true so existing exams keep their
+  // current behavior.
+  proctoring_enabled: { type: Boolean, default: true },
   // Auto-grading checks run against the student's submitted code (see server/utils/grader.js).
   // Empty array = no auto-grading for this exam, just manual review.
   checks: { type: [checkSchema], default: [] },

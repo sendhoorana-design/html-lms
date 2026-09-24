@@ -18,6 +18,7 @@
     <div class="brand">HTML LMS</div>
     <div class="right">
       <span id="whoami"></span>
+      <button class="secondary" id="practiceBtn">Practice sandbox</button>
       <button class="secondary" id="changePasswordBtn">Change password</button>
       <button class="secondary" id="logoutBtn">Log out</button>
     </div>
@@ -37,8 +38,10 @@
     <div>
       <strong id="examTitle"></strong>
       <span class="muted" id="examTimer" style="margin-left:14px;"></span>
+      <span class="badge pending" id="proctoringOffBadge" style="display:none; margin-left:10px;">Proctoring off</span>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
+      <button class="secondary" id="instructionsBtn">Instructions</button>
       <span class="muted" id="readOnlyBanner" style="display:none;">Read-only</span>
       <span class="muted" id="saveStatus">Saved</span>
       <button class="secondary" id="backBtn">Back</button>
@@ -61,6 +64,50 @@
     <div class="pane" id="violationsPane" style="display:none; flex: 0 0 280px; border-left: 1px solid var(--border);">
       <div class="pane-header">Proctoring log</div>
       <div id="studentViolationsList" style="overflow:auto; padding:10px; font-size:12px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Practice sandbox: a free-write code + preview area, entirely separate from any assignment.
+     Not submitted or graded anywhere, no timer, no proctoring — just a place to try things out.
+     Code is kept in this browser's localStorage (scoped per logged-in username) so it survives
+     reloads, but never touches the server. -->
+<div id="practiceView" class="exam-editor-wrap" style="display:none;">
+  <div class="editor-header">
+    <div>
+      <strong>Practice sandbox</strong>
+      <span class="muted" style="margin-left:14px;">Not graded or submitted — just for trying things out</span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button class="secondary" id="practiceResetBtn">Clear code</button>
+      <button class="secondary" id="practiceBackBtn">Back</button>
+    </div>
+  </div>
+  <div class="split">
+    <div class="pane left">
+      <div class="pane-header">HTML — write your code</div>
+      <textarea id="practiceCodeArea"></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-header">Output preview</div>
+      <iframe id="practicePreview" sandbox="allow-scripts"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- Instructions / requirements modal, opened from the "Instructions" button in the exam header.
+     Shows the exam's problem description plus the (label-only) auto-grading checklist, so a
+     student can see what's expected without it being buried out of view once the exam starts. -->
+<div id="instructionsModal" class="modal-backdrop" style="display:none;">
+  <div class="modal" style="width:480px;">
+    <h3 style="margin-top:0;" id="instructionsModalTitle">Instructions</h3>
+    <div id="instructionsModalBody" style="max-height:50vh; overflow:auto; white-space:pre-wrap; font-size:14px; line-height:1.5;"></div>
+    <div id="instructionsRequirementsWrap" style="margin-top:14px;">
+      <label style="display:block; margin-bottom:6px;">Requirements checklist</label>
+      <ul id="instructionsRequirementsList" style="margin:0; padding-left:20px; font-size:13px; color:var(--muted);"></ul>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button class="secondary" id="instructionsCloseBtn">Close</button>
     </div>
   </div>
 </div>

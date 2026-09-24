@@ -265,6 +265,7 @@ router.get('/exams', asyncHandler(async (req, res) => {
     starter_code: e.starter_code,
     time_limit_minutes: e.time_limit_minutes,
     violation_limit: e.violation_limit,
+    proctoring_enabled: e.proctoring_enabled !== false,
     checks: e.checks || [],
     created_by: e.created_by ? e.created_by.toString() : null,
     created_at: e.created_at
@@ -292,7 +293,7 @@ function sanitizeChecks(rawChecks) {
 }
 
 router.post('/exams', asyncHandler(async (req, res) => {
-  const { title, instructions, starter_code, time_limit_minutes, violation_limit, checks } = req.body;
+  const { title, instructions, starter_code, time_limit_minutes, violation_limit, proctoring_enabled, checks } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
 
   const doc = {
@@ -300,6 +301,7 @@ router.post('/exams', asyncHandler(async (req, res) => {
     instructions: instructions || '',
     time_limit_minutes: time_limit_minutes || 60,
     violation_limit: violation_limit || 5,
+    proctoring_enabled: proctoring_enabled !== false,
     checks: sanitizeChecks(checks),
     created_by: req.user.id
   };
@@ -326,7 +328,7 @@ router.put('/exams/:id/checks', asyncHandler(async (req, res) => {
 // still-empty assignment, see student.js), and checks changes simply apply the next time a
 // submission is (re-)graded. Same ownership rule as the checks-only update above.
 router.put('/exams/:id', asyncHandler(async (req, res) => {
-  const { title, instructions, starter_code, time_limit_minutes, violation_limit, checks } = req.body;
+  const { title, instructions, starter_code, time_limit_minutes, violation_limit, proctoring_enabled, checks } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
 
   const update = {
@@ -335,6 +337,7 @@ router.put('/exams/:id', asyncHandler(async (req, res) => {
     starter_code: starter_code || '',
     time_limit_minutes: time_limit_minutes || 60,
     violation_limit: violation_limit || 5,
+    proctoring_enabled: proctoring_enabled !== false,
     checks: sanitizeChecks(checks)
   };
 

@@ -523,9 +523,11 @@
       // A sub-admin can assign/view submissions for any exam they can see (the main admin's or
       // their own), but can only edit/delete exams they created themselves.
       const canEdit = isSuperAdmin || ex.created_by === me.id;
+      const proctoringOn = ex.proctoring_enabled !== false;
       tr.innerHTML = `
         <td>${escapeHtml(ex.title)}</td>
         <td>${ex.time_limit_minutes} min</td>
+        <td><span class="badge ${proctoringOn ? 'approved' : 'pending'}">${proctoringOn ? 'On' : 'Off'}</span></td>
         <td>${escapeHtml((ex.created_at || '').slice(0,16))}</td>
         <td>
           <button class="secondary assign-btn" data-id="${ex.id}">Assign</button>
@@ -833,6 +835,7 @@
   function resetExamForm() {
     editingExamId = null;
     $('addExamForm').reset();
+    $('e_proctoring').checked = true;
     $('checksList').innerHTML = '';
     $('checksBulkInput').value = '';
     $('checksBulkError').textContent = '';
@@ -856,6 +859,7 @@
     $('e_starter').value = ex.starter_code || '';
     $('e_time').value = ex.time_limit_minutes || 60;
     $('e_vlimit').value = ex.violation_limit || 5;
+    $('e_proctoring').checked = ex.proctoring_enabled !== false;
 
     $('checksList').innerHTML = '';
     (ex.checks || []).forEach((c) => addCheckRow(c));
@@ -876,6 +880,7 @@
       starter_code: $('e_starter').value,
       time_limit_minutes: parseInt($('e_time').value, 10) || 60,
       violation_limit: parseInt($('e_vlimit').value, 10) || 5,
+      proctoring_enabled: $('e_proctoring').checked,
       checks: collectChecks()
     };
     try {

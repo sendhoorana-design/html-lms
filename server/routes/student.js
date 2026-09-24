@@ -105,11 +105,15 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
       instructions: assignment.exam.instructions,
       starter_code: assignment.exam.starter_code,
       time_limit_minutes: assignment.exam.time_limit_minutes,
-      violation_limit: assignment.exam.violation_limit
+      violation_limit: assignment.exam.violation_limit,
+      proctoring_enabled: assignment.exam.proctoring_enabled !== false
     },
     code: assignment.code || '',
     readOnly,
     violations,
+    // Check labels only (never the selector/text/pattern used to grade), so a student can see
+    // what's being evaluated without it handing them the exact expected markup.
+    requirements: (assignment.exam.checks || []).map((c) => c.label),
     test_results: assignment.test_results || [],
     score: assignment.score
   });
@@ -167,9 +171,14 @@ router.post('/assignments/:id/heartbeat', asyncHandler(async (req, res) => {
 // Log a proctoring violation
 router.post('/assignments/:id/violation', asyncHandler(async (req, res) => {
   const { type, detail } = req.body;
-  const assignment = await ExamAssignment.findOne({ _id: req.params.id, student: req.user.id }).populate('exam', 'violation_limit');
+  const assignment = await ExamAssignment.findOne({ _id: req.params.id, student: req.user.id }).populate('exam', 'violation_limit proctoring_enabled');
   if (!assignment || !assignment.exam) return res.status(404).json({ error: 'Not found' });
   if (assignment.status === 'submitted' || assignment.status === 'locked') {
+    return res.json({ ok: true, ignored: true });
+  }
+  // Defense in depth: even if a client somehow still sends a violation event for a
+  // proctoring-disabled exam, don't log or count it server-side either.
+  if (assignment.exam.proctoring_enabled === false) {
     return res.json({ ok: true, ignored: true });
   }
 

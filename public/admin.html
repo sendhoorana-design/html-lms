@@ -124,6 +124,14 @@
           </div>
         </div>
 
+        <div class="checkbox-row mt-16">
+          <input id="e_proctoring" type="checkbox" checked />
+          <label for="e_proctoring" style="margin:0;">Enable proctoring (fullscreen requirement, tab-switch/copy-paste/devtools detection, auto-lock on violations)</label>
+        </div>
+        <p class="muted" style="margin-top:4px; font-size:12px;">
+          Turn this off for practice-style or low-stakes exams — the timer and auto-grading still work, but nothing is monitored or logged, and students aren't forced into fullscreen.
+        </p>
+
         <label class="mt-16">Auto-grading checks <span class="muted">(optional)</span></label>
         <p class="muted" style="margin-top:0; font-size:12px;">
           Each check runs automatically when a student submits. Score = % of checks passed.
@@ -171,7 +179,7 @@
     </div>
     <h3 class="mt-16">All exams</h3>
     <table>
-      <thead><tr><th>Title</th><th>Time limit</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Title</th><th>Time limit</th><th>Proctoring</th><th>Created</th><th></th></tr></thead>
       <tbody id="examsBody"></tbody>
     </table>
   </div>
