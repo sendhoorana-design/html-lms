@@ -230,7 +230,10 @@
   <div class="modal" style="width:70vw; max-width:800px;">
     <div class="flex-between">
       <h3 id="submissionsTitle" style="margin:0;">Submissions</h3>
-      <button class="secondary" id="submissionsCloseBtn">Close</button>
+      <div style="display:flex; gap:10px;">
+        <button class="secondary" id="unlockAllBtn">Unlock all locked</button>
+        <button class="secondary" id="submissionsCloseBtn">Close</button>
+      </div>
     </div>
     <table class="mt-16">
       <thead><tr><th>Student</th><th>Status</th><th>Violations</th><th>Score</th><th>Submitted</th><th></th></tr></thead>
@@ -274,6 +277,20 @@
     <div class="mt-16">
       <button class="secondary" id="unlockBtn">Unlock exam</button>
       <button class="secondary" id="continueTestBtn">Continue test</button>
+    </div>
+
+    <div class="mt-16 card" style="padding:14px;">
+      <label style="margin-top:0;">Violation limit for this student <span class="muted">(overrides the exam's setting)</span></label>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <span class="muted" id="detailEffectiveLimit" style="font-size:13px;"></span>
+        <input id="detailVLimitInput" type="number" min="1" style="width:100px;" />
+        <div class="checkbox-row" style="padding:0;">
+          <input id="detailVLimitNone" type="checkbox" />
+          <label for="detailVLimitNone" style="margin:0; font-size:13px;">No limit for this student</label>
+        </div>
+        <button class="secondary" id="detailVLimitSaveBtn">Save</button>
+        <button class="secondary" id="detailVLimitClearBtn">Use exam default</button>
+      </div>
     </div>
   </div>
 </div>

@@ -981,6 +981,13 @@
     const exam = exams.find((e) => String(e.id) === String(examId));
     $('submissionsTitle').textContent = exam ? `Submissions — ${exam.title}` : 'Submissions';
 
+    $('unlockAllBtn').onclick = async () => {
+      if (!confirm('Unlock every currently-locked student for this exam? They\'ll be able to keep working from where they left off.')) return;
+      const result = await api(`/api/admin/exams/${examId}/unlock-all`, { method: 'POST' });
+      alert(result.unlocked > 0 ? `Unlocked ${result.unlocked} student(s).` : 'No locked students to unlock.');
+      await openSubmissionsModal(examId);
+    };
+
     const rows = await api(`/api/admin/exams/${examId}/assignments`);
     const tbody = $('submissionsBody');
     tbody.innerHTML = rows.length
@@ -1097,6 +1104,35 @@
     $('runTestsBtn').onclick = async () => {
       const result = await api(`/api/admin/assignments/${assignmentId}/run-tests`, { method: 'POST' });
       renderTestResults(result.test_results, result.score, (data.assignment.checks || []).length);
+    };
+
+    // Per-student violation limit override — takes precedence over the exam's own setting.
+    const hasOverride = data.assignment.violation_limit_override !== null && data.assignment.violation_limit_override !== undefined;
+    $('detailEffectiveLimit').textContent = hasOverride
+      ? `Currently: custom limit for this student (exam default is ${data.assignment.violation_limit || 'no limit'})`
+      : `Currently: using the exam's default (${data.assignment.violation_limit || 'no limit'})`;
+    $('detailVLimitNone').checked = hasOverride && data.assignment.violation_limit_override === 0;
+    $('detailVLimitInput').value = hasOverride && data.assignment.violation_limit_override > 0
+      ? data.assignment.violation_limit_override
+      : (data.assignment.violation_limit || 5);
+    $('detailVLimitInput').disabled = $('detailVLimitNone').checked;
+    $('detailVLimitNone').onchange = () => {
+      $('detailVLimitInput').disabled = $('detailVLimitNone').checked;
+    };
+    $('detailVLimitSaveBtn').onclick = async () => {
+      const override = $('detailVLimitNone').checked ? 0 : (parseInt($('detailVLimitInput').value, 10) || 1);
+      await api(`/api/admin/assignments/${assignmentId}/violation-limit`, {
+        method: 'PUT',
+        body: JSON.stringify({ violation_limit_override: override })
+      });
+      await openDetail(assignmentId);
+    };
+    $('detailVLimitClearBtn').onclick = async () => {
+      await api(`/api/admin/assignments/${assignmentId}/violation-limit`, {
+        method: 'PUT',
+        body: JSON.stringify({ violation_limit_override: null })
+      });
+      await openDetail(assignmentId);
     };
 
     $('detailModal').style.display = 'flex';

@@ -197,8 +197,14 @@ router.post('/assignments/:id/violation', asyncHandler(async (req, res) => {
 
   const count = await Violation.countDocuments({ assignment: assignment._id });
 
+  // A per-student override (set by an admin on the assignment) takes precedence over the exam's
+  // own violation_limit — null/undefined means "use the exam's setting", 0 means "no limit for
+  // this student specifically".
+  const hasOverride = assignment.violation_limit_override !== null && assignment.violation_limit_override !== undefined;
+  const effectiveLimit = hasOverride ? assignment.violation_limit_override : assignment.exam.violation_limit;
+
   let locked = false;
-  if (assignment.exam.violation_limit && count >= assignment.exam.violation_limit) {
+  if (effectiveLimit && count >= effectiveLimit) {
     assignment.status = 'locked';
     await assignment.save();
     locked = true;

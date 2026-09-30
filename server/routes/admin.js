@@ -483,7 +483,11 @@ router.get('/monitor', asyncHandler(async (req, res) => {
       full_name: a.student.full_name,
       exam_id: a.exam._id.toString(),
       exam_title: a.exam.title,
-      violation_limit: a.exam.violation_limit,
+      // The per-student override (if set) is what's actually enforced — show that instead of the
+      // exam's default so the ratio in Live Monitor matches what will really happen.
+      violation_limit: (a.violation_limit_override !== null && a.violation_limit_override !== undefined)
+        ? a.violation_limit_override
+        : a.exam.violation_limit,
       violation_count: countMap.get(a._id.toString()) || 0,
       score: typeof a.score === 'number' ? a.score : null
     }))
@@ -535,6 +539,7 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
       exam_title: a.exam.title,
       instructions: a.exam.instructions,
       violation_limit: a.exam.violation_limit,
+      violation_limit_override: a.violation_limit_override,
       checks: a.exam.checks || []
     },
     code: a.code || '',
@@ -554,6 +559,40 @@ router.post('/assignments/:id/unlock', asyncHandler(async (req, res) => {
   if (!a) return;
   await ExamAssignment.updateOne({ _id: a._id }, { $set: { status: 'in_progress' } });
   res.json({ ok: true });
+}));
+
+// Unlock every currently-locked assignment for one exam in a single action, instead of opening
+// each student's detail view individually. Same ownership scoping as everything else here: a
+// sub-admin only affects their own managed students, even if other students are locked too.
+router.post('/exams/:id/unlock-all', asyncHandler(async (req, res) => {
+  const examId = req.params.id;
+  const locked = await ExamAssignment.find({ exam: examId, status: 'locked' }).populate('student', 'managing_admin').lean();
+  const targetIds = locked
+    .filter((a) => a.student && (req.isSuperAdmin || (a.student.managing_admin && a.student.managing_admin.toString() === req.user.id)))
+    .map((a) => a._id);
+  if (targetIds.length === 0) return res.json({ ok: true, unlocked: 0 });
+  await ExamAssignment.updateMany({ _id: { $in: targetIds } }, { $set: { status: 'in_progress' } });
+  res.json({ ok: true, unlocked: targetIds.length });
+}));
+
+// Per-student override of how many violations this one student can rack up before auto-lock —
+// takes precedence over the exam's own violation_limit. Pass null to clear the override and go
+// back to the exam's default, or 0 to mean "never auto-lock this student", or any positive
+// number for a custom limit just for them.
+router.put('/assignments/:id/violation-limit', asyncHandler(async (req, res) => {
+  const a = await loadOwnedAssignment(req, res);
+  if (!a) return;
+  let { violation_limit_override } = req.body;
+  if (violation_limit_override !== null && violation_limit_override !== undefined) {
+    violation_limit_override = parseInt(violation_limit_override, 10);
+    if (Number.isNaN(violation_limit_override) || violation_limit_override < 0) {
+      return res.status(400).json({ error: 'violation_limit_override must be null, 0, or a positive number' });
+    }
+  } else {
+    violation_limit_override = null;
+  }
+  await ExamAssignment.updateOne({ _id: a._id }, { $set: { violation_limit_override } });
+  res.json({ ok: true, violation_limit_override });
 }));
 
 // Reopen an already-submitted exam so the student can keep working — e.g. they submitted early
