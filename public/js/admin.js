@@ -64,6 +64,9 @@
     $('bulkAssignAdminBtn').addEventListener('click', onBulkAssignAdmin);
     $('addExamForm').addEventListener('submit', onAddExam);
     $('examCancelEditBtn').addEventListener('click', () => resetExamForm());
+    $('e_vlimit_none').addEventListener('change', () => {
+      $('e_vlimit').disabled = $('e_vlimit_none').checked;
+    });
     $('addCheckBtn').addEventListener('click', () => addCheckRow());
     setupChecksBulkAdd();
     setupChecksCsvImport();
@@ -167,6 +170,7 @@
         <td>
           <button class="secondary edit-class" data-id="${s.id}">Edit class</button>
           ${s.must_change_password ? '' : `<button class="secondary force-pw" data-id="${s.id}">Force change</button>`}
+          <button class="secondary reset-pw" data-id="${s.id}" data-name="${escapeHtml(s.full_name)}">Reset password</button>
           ${isSuperAdmin ? `<button class="secondary danger-del" data-id="${s.id}">Remove</button>` : ''}
         </td>
       `;
@@ -183,6 +187,15 @@
       btn.addEventListener('click', async () => {
         if (!confirm('Require this student to set a new password next time they log in?')) return;
         await api(`/api/admin/students/${btn.dataset.id}/force-password-change`, { method: 'POST' });
+        await loadStudents();
+      });
+    });
+    tbody.querySelectorAll('.reset-pw').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const name = btn.dataset.name || 'this student';
+        if (!confirm(`Reset ${name}'s password to the default "Welcome@123"? They'll be required to set a new one the next time they log in.`)) return;
+        const res = await api(`/api/admin/students/${btn.dataset.id}/reset-password`, { method: 'POST' });
+        alert(`Password reset. ${name} can now log in with: ${res.default_password}`);
         await loadStudents();
       });
     });
@@ -836,6 +849,8 @@
     editingExamId = null;
     $('addExamForm').reset();
     $('e_proctoring').checked = true;
+    $('e_vlimit_none').checked = false;
+    $('e_vlimit').disabled = false;
     $('checksList').innerHTML = '';
     $('checksBulkInput').value = '';
     $('checksBulkError').textContent = '';
@@ -858,7 +873,10 @@
     $('e_instructions').value = ex.instructions || '';
     $('e_starter').value = ex.starter_code || '';
     $('e_time').value = ex.time_limit_minutes || 60;
-    $('e_vlimit').value = ex.violation_limit || 5;
+    const hasNoLimit = ex.violation_limit === 0;
+    $('e_vlimit_none').checked = hasNoLimit;
+    $('e_vlimit').value = hasNoLimit ? 5 : (ex.violation_limit || 5);
+    $('e_vlimit').disabled = hasNoLimit;
     $('e_proctoring').checked = ex.proctoring_enabled !== false;
 
     $('checksList').innerHTML = '';
@@ -879,7 +897,7 @@
       instructions: $('e_instructions').value,
       starter_code: $('e_starter').value,
       time_limit_minutes: parseInt($('e_time').value, 10) || 60,
-      violation_limit: parseInt($('e_vlimit').value, 10) || 5,
+      violation_limit: $('e_vlimit_none').checked ? 0 : (parseInt($('e_vlimit').value, 10) || 5),
       proctoring_enabled: $('e_proctoring').checked,
       checks: collectChecks()
     };

@@ -120,7 +120,11 @@
           </div>
           <div>
             <label>Violation limit before lock</label>
-            <input id="e_vlimit" type="number" value="5" />
+            <input id="e_vlimit" type="number" value="5" min="1" />
+            <div class="checkbox-row" style="padding-top:4px;">
+              <input id="e_vlimit_none" type="checkbox" />
+              <label for="e_vlimit_none" style="margin:0; font-size:12px;">No limit — never auto-lock</label>
+            </div>
           </div>
         </div>
 
@@ -128,6 +132,9 @@
           <input id="e_proctoring" type="checkbox" checked />
           <label for="e_proctoring" style="margin:0;">Enable proctoring (fullscreen requirement, tab-switch/copy-paste/devtools detection, auto-lock on violations)</label>
         </div>
+        <p class="muted" style="margin-top:4px; font-size:12px;">
+          "No limit" still runs proctoring and logs every violation for you to review — it just never locks the student out automatically, no matter how many violations pile up.
+        </p>
         <p class="muted" style="margin-top:4px; font-size:12px;">
           Turn this off for practice-style or low-stakes exams — the timer and auto-grading still work, but nothing is monitored or logged, and students aren't forced into fullscreen.
         </p>

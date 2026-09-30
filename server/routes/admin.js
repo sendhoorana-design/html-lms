@@ -141,12 +141,27 @@ router.put('/students/:id/section', asyncHandler(async (req, res) => {
 
 // Force a student to set a new password next time they log in — for a compromised or
 // forgotten password, not just freshly-imported accounts. Same ownership scoping as above.
+// Note: this alone doesn't help a student who has actually forgotten their password, since
+// logging in at all still requires the *current* password — see reset-password below for that.
 router.post('/students/:id/force-password-change', asyncHandler(async (req, res) => {
   const filter = { _id: req.params.id, role: 'student' };
   if (!req.isSuperAdmin) filter.managing_admin = req.user.id;
   const result = await User.updateOne(filter, { $set: { must_change_password: true } });
   if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found' });
   res.json({ ok: true });
+}));
+
+// Reset a student's password to a known default and force them to change it on next login —
+// for an actually forgotten/locked-out password, where force-password-change above can't help
+// since it still requires knowing the current password to log in at all. Same ownership scoping.
+const DEFAULT_RESET_PASSWORD = 'Welcome@123';
+router.post('/students/:id/reset-password', asyncHandler(async (req, res) => {
+  const filter = { _id: req.params.id, role: 'student' };
+  if (!req.isSuperAdmin) filter.managing_admin = req.user.id;
+  const hash = bcrypt.hashSync(DEFAULT_RESET_PASSWORD, 10);
+  const result = await User.updateOne(filter, { $set: { password_hash: hash, must_change_password: true } });
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, default_password: DEFAULT_RESET_PASSWORD });
 }));
 
 // Removing student accounts is main-admin-only, same reasoning as create/import above.
@@ -300,7 +315,9 @@ router.post('/exams', asyncHandler(async (req, res) => {
     title,
     instructions: instructions || '',
     time_limit_minutes: time_limit_minutes || 60,
-    violation_limit: violation_limit || 5,
+    // 0 is a deliberate "no limit — never auto-lock" value from the admin UI, distinct from
+    // "not provided" (undefined/null), which should still fall back to the default of 5.
+    violation_limit: violation_limit === 0 ? 0 : (violation_limit || 5),
     proctoring_enabled: proctoring_enabled !== false,
     checks: sanitizeChecks(checks),
     created_by: req.user.id
@@ -336,7 +353,7 @@ router.put('/exams/:id', asyncHandler(async (req, res) => {
     instructions: instructions || '',
     starter_code: starter_code || '',
     time_limit_minutes: time_limit_minutes || 60,
-    violation_limit: violation_limit || 5,
+    violation_limit: violation_limit === 0 ? 0 : (violation_limit || 5),
     proctoring_enabled: proctoring_enabled !== false,
     checks: sanitizeChecks(checks)
   };
