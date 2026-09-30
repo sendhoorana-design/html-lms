@@ -47,7 +47,7 @@ router.use(asyncHandler(async (req, res, next) => {
 // List all exams assigned to the logged-in student
 router.get('/assignments', asyncHandler(async (req, res) => {
   const assignments = await ExamAssignment.find({ student: req.user.id })
-    .populate('exam', 'title instructions time_limit_minutes')
+    .populate('exam', 'title instructions time_limit_minutes proctoring_enabled checks')
     .sort({ _id: -1 })
     .lean();
 
@@ -62,7 +62,12 @@ router.get('/assignments', asyncHandler(async (req, res) => {
         exam_id: a.exam._id.toString(),
         title: a.exam.title,
         instructions: a.exam.instructions,
-        time_limit_minutes: a.exam.time_limit_minutes
+        time_limit_minutes: a.exam.time_limit_minutes,
+        proctoring_enabled: a.exam.proctoring_enabled !== false,
+        // Check labels only, so a student can preview what's expected before even starting the
+        // exam (and the clock/proctoring) — never the underlying selector/text/pattern used to
+        // grade, which would hand them the exact expected markup.
+        requirements: (a.exam.checks || []).map((c) => c.label)
       }))
   );
 }));

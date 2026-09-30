@@ -10,6 +10,7 @@
   let proctoringActive = false;
   let currentInstructions = '';
   let currentRequirements = [];
+  let lastAssignments = [];
   let practiceCm = null;
   let practiceSaveTimer = null;
 
@@ -136,6 +137,7 @@
     $('assignmentList').style.display = 'block';
 
     const assignments = await api('/api/student/assignments');
+    lastAssignments = assignments;
     const tbody = document.querySelector('#assignmentsTable tbody');
     tbody.innerHTML = '';
     for (const a of assignments) {
@@ -145,14 +147,20 @@
         <td>${escapeHtml(a.title)}</td>
         <td><span class="badge ${a.status}">${a.status.replace('_',' ')}</span></td>
         <td>${a.time_limit_minutes} min</td>
-        <td>${isReadOnly
-          ? `<button class="secondary openBtn" data-id="${a.assignment_id}">View</button>`
-          : `<button data-id="${a.assignment_id}" class="openBtn">${a.status === 'not_started' ? 'Start' : 'Resume'}</button>`}</td>
+        <td>
+          <button class="secondary detailsBtn" data-id="${a.assignment_id}">Details</button>
+          ${isReadOnly
+            ? `<button class="secondary openBtn" data-id="${a.assignment_id}">View</button>`
+            : `<button data-id="${a.assignment_id}" class="openBtn">${a.status === 'not_started' ? 'Start' : 'Resume'}</button>`}
+        </td>
       `;
       tbody.appendChild(tr);
     }
     tbody.querySelectorAll('.openBtn').forEach((btn) => {
       btn.addEventListener('click', () => openAssignment(btn.dataset.id));
+    });
+    tbody.querySelectorAll('.detailsBtn').forEach((btn) => {
+      btn.addEventListener('click', () => showAssignmentPreview(btn.dataset.id));
     });
   }
 
@@ -220,18 +228,43 @@
     openInstructionsModal();
   }
 
-  function openInstructionsModal() {
-    $('instructionsModalTitle').textContent = $('examTitle').textContent || 'Instructions';
-    $('instructionsModalBody').textContent = currentInstructions || 'No instructions were provided for this exam.';
+  function renderInstructionsModal(title, instructions, requirements) {
+    $('instructionsModalTitle').textContent = title || 'Instructions';
+    $('instructionsModalBody').textContent = instructions || 'No instructions were provided for this exam.';
     const list = $('instructionsRequirementsList');
-    if (currentRequirements.length) {
+    if (requirements && requirements.length) {
       $('instructionsRequirementsWrap').style.display = 'block';
-      list.innerHTML = currentRequirements.map((r) => `<li>${escapeHtml(r)}</li>`).join('');
+      list.innerHTML = requirements.map((r) => `<li>${escapeHtml(r)}</li>`).join('');
     } else {
       $('instructionsRequirementsWrap').style.display = 'none';
       list.innerHTML = '';
     }
     $('instructionsModal').style.display = 'flex';
+  }
+
+  function openInstructionsModal() {
+    renderInstructionsModal($('examTitle').textContent, currentInstructions, currentRequirements);
+    $('instructionsStartBtn').style.display = 'none';
+  }
+
+  // Lets a student see an exam's instructions and requirements checklist from the assignment
+  // list, before starting it — i.e. before the timer or proctoring kick in. Uses the data already
+  // fetched for the list (no extra request), and never touches the assignment's status.
+  function showAssignmentPreview(id) {
+    const a = lastAssignments.find((x) => x.assignment_id === id);
+    if (!a) return;
+    renderInstructionsModal(a.title, a.instructions, a.requirements);
+    const startBtn = $('instructionsStartBtn');
+    if (a.status === 'not_started' || a.status === 'in_progress') {
+      startBtn.style.display = 'inline-block';
+      startBtn.textContent = a.status === 'not_started' ? 'Start exam' : 'Resume exam';
+      startBtn.onclick = () => {
+        $('instructionsModal').style.display = 'none';
+        openAssignment(id);
+      };
+    } else {
+      startBtn.style.display = 'none';
+    }
   }
 
   // ---------------- Practice sandbox ----------------
