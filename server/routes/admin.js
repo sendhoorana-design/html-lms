@@ -561,6 +561,25 @@ router.post('/assignments/:id/unlock', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Unlock a set of assignments picked by checkbox in Live Monitor (across any exam/student), in
+// one action. Silently skips anything not actually locked, or not owned by this admin — the UI
+// only offers valid choices, but this is re-checked here in case the endpoint is called directly.
+router.post('/assignments/unlock-bulk', asyncHandler(async (req, res) => {
+  const { assignment_ids } = req.body;
+  if (!Array.isArray(assignment_ids) || assignment_ids.length === 0) {
+    return res.status(400).json({ error: 'assignment_ids array required' });
+  }
+  const candidates = await ExamAssignment.find({ _id: { $in: assignment_ids }, status: 'locked' })
+    .populate('student', 'managing_admin')
+    .lean();
+  const targetIds = candidates
+    .filter((a) => a.student && (req.isSuperAdmin || (a.student.managing_admin && a.student.managing_admin.toString() === req.user.id)))
+    .map((a) => a._id);
+  if (targetIds.length === 0) return res.json({ ok: true, unlocked: 0 });
+  await ExamAssignment.updateMany({ _id: { $in: targetIds } }, { $set: { status: 'in_progress' } });
+  res.json({ ok: true, unlocked: targetIds.length });
+}));
+
 // Unlock every currently-locked assignment for one exam in a single action, instead of opening
 // each student's detail view individually. Same ownership scoping as everything else here: a
 // sub-admin only affects their own managed students, even if other students are locked too.

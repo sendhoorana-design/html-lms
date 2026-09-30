@@ -1036,13 +1036,15 @@
     const rows = await api('/api/admin/monitor');
     const tbody = $('monitorBody');
     tbody.innerHTML = '';
+    $('monitorSelectAll').checked = false;
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">No exams currently in progress.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">No exams currently in progress.</td></tr>';
     }
     for (const r of rows) {
       const vClass = r.violation_count === 0 ? 'zero' : (r.violation_count >= r.violation_limit ? 'high' : 'some');
       const tr = document.createElement('tr');
       tr.innerHTML = `
+        <td>${r.status === 'locked' ? `<input type="checkbox" class="monitor-select" data-id="${r.assignment_id}" />` : ''}</td>
         <td>${escapeHtml(r.full_name)}</td>
         <td>${escapeHtml(r.exam_title)}</td>
         <td><span class="badge ${r.status}">${r.status.replace('_',' ')}</span></td>
@@ -1057,6 +1059,23 @@
     });
     $('monitorUpdated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
   }
+
+  $('monitorSelectAll').addEventListener('change', () => {
+    const checked = $('monitorSelectAll').checked;
+    document.querySelectorAll('#monitorBody .monitor-select').forEach((cb) => { cb.checked = checked; });
+  });
+
+  $('unlockSelectedBtn').addEventListener('click', async () => {
+    const ids = Array.from(document.querySelectorAll('#monitorBody .monitor-select:checked')).map((cb) => cb.dataset.id);
+    if (ids.length === 0) {
+      alert('Select one or more locked students first (checkbox only appears for locked rows).');
+      return;
+    }
+    if (!confirm(`Unlock ${ids.length} selected student(s)? They'll be able to keep working from where they left off.`)) return;
+    const result = await api('/api/admin/assignments/unlock-bulk', { method: 'POST', body: JSON.stringify({ assignment_ids: ids }) });
+    alert(`Unlocked ${result.unlocked} student(s).`);
+    await loadMonitor();
+  });
 
   async function openDetail(assignmentId) {
     const data = await api(`/api/admin/assignments/${assignmentId}`);

@@ -31,10 +31,13 @@
   <div id="tab-monitor" class="tab-panel">
     <div class="flex-between">
       <h2>Live Monitor</h2>
-      <span class="muted" id="monitorUpdated"></span>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button class="secondary" id="unlockSelectedBtn">Unlock selected</button>
+        <span class="muted" id="monitorUpdated"></span>
+      </div>
     </div>
     <table>
-      <thead><tr><th>Student</th><th>Exam</th><th>Status</th><th>Violations</th><th>Last activity</th><th></th></tr></thead>
+      <thead><tr><th style="width:30px;"><input id="monitorSelectAll" type="checkbox" /></th><th>Student</th><th>Exam</th><th>Status</th><th>Violations</th><th>Last activity</th><th></th></tr></thead>
       <tbody id="monitorBody"></tbody>
     </table>
   </div>
