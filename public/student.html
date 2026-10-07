@@ -9,6 +9,44 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
 <style>
   body { overflow: hidden; }
+
+  /* ---- Practice compiler (OneCompiler-style) ---- */
+  .pc-wrap { height:100vh; display:flex; flex-direction:column; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; --pc-bg:#fff; --pc-panel:#f6f7f9; --pc-border:#e3e5ea; --pc-text:#222; --pc-muted:#777; --pc-accent:#4f5bd5; --pc-tab-active:#fff; }
+  .pc-wrap.pc-dark { --pc-bg:#1e1f26; --pc-panel:#262833; --pc-border:#383a48; --pc-text:#e6e8f0; --pc-muted:#9a9db3; --pc-tab-active:#1e1f26; }
+  .pc-wrap { background:var(--pc-bg); color:var(--pc-text); }
+  .pc-topbar { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--pc-border); background:var(--pc-bg); flex-wrap:wrap; }
+  .pc-left, .pc-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pc-brand { color:var(--pc-accent); font-size:18px; }
+  .pc-lang { background:var(--pc-accent); color:#fff; padding:6px 14px; border-radius:6px; font-weight:600; font-size:13px; }
+  .pc-run { background:#dc3a5e; color:#fff; border:none; padding:7px 22px; border-radius:6px; font-weight:700; cursor:pointer; }
+  .pc-btn { background:var(--pc-bg); color:var(--pc-text); border:1px solid var(--pc-border); padding:6px 12px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+  .pc-btn.pc-danger { color:#dc3a5e; }
+  .pc-icon-btn { background:transparent; border:none; color:var(--pc-muted); cursor:pointer; font-size:16px; padding:4px 8px; }
+  .pc-input { background:var(--pc-bg); color:var(--pc-text); border:1px solid var(--pc-border); border-radius:6px; padding:6px 10px; font-size:13px; width:140px; }
+  .pc-main { flex:1; display:flex; min-height:0; }
+  .pc-editor-col { flex:1; display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--pc-border); }
+  .pc-tabs { display:flex; align-items:center; background:var(--pc-panel); border-bottom:1px solid var(--pc-border); overflow-x:auto; flex-shrink:0; }
+  .pc-tab { display:flex; align-items:center; gap:8px; padding:9px 14px; font-size:13px; color:var(--pc-muted); cursor:pointer; border-right:1px solid var(--pc-border); white-space:nowrap; }
+  .pc-tab.active { background:var(--pc-tab-active); color:var(--pc-text); font-weight:600; box-shadow:inset 0 -2px 0 var(--pc-accent); }
+  .pc-tab .pc-x { color:var(--pc-muted); font-size:14px; }
+  .pc-tab .pc-x:hover { color:#dc3a5e; }
+  .pc-add { padding:9px 14px; cursor:pointer; color:var(--pc-muted); font-size:16px; }
+  .pc-editor-host { flex:1; min-height:0; }
+  .pc-editor-host .CodeMirror { height:100% !important; font-size:14px; }
+  .pc-preview-col { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .pc-preview-bar { display:flex; align-items:center; gap:10px; padding:6px 10px; background:var(--pc-panel); border-bottom:1px solid var(--pc-border); font-size:13px; flex-shrink:0; }
+  .pc-preview-tab { font-weight:600; }
+  .pc-address { flex:1; background:var(--pc-bg); border:1px solid var(--pc-border); border-radius:6px; padding:3px 10px; color:var(--pc-muted); }
+  #practicePreview { flex:1; border:none; background:#fff; min-height:0; }
+  .pc-console { border-top:1px solid var(--pc-border); background:var(--pc-bg); flex-shrink:0; }
+  .pc-console-bar { display:flex; justify-content:space-between; align-items:center; padding:4px 10px; font-size:12px; color:var(--pc-muted); cursor:pointer; background:var(--pc-panel); }
+  .pc-console-body { display:none; height:150px; overflow:auto; padding:6px 10px; font-family:Consolas,Menlo,monospace; font-size:12px; user-select:text; }
+  .pc-console.open .pc-console-body { display:block; }
+  .pc-log { padding:2px 0; border-bottom:1px solid var(--pc-border); white-space:pre-wrap; word-break:break-word; }
+  .pc-log.error { color:#dc3a5e; } .pc-log.warn { color:#b7791f; }
+  .pc-status { display:flex; gap:18px; align-items:center; padding:4px 12px; font-size:12px; border-top:1px solid var(--pc-border); background:var(--pc-panel); color:var(--pc-muted); }
+  .pc-status .muted { margin-left:auto; }
+  @media (max-width: 768px) { .pc-main { flex-direction:column; } .pc-editor-col { border-right:none; border-bottom:1px solid var(--pc-border); } }
 </style>
 </head>
 <body>
@@ -68,45 +106,53 @@
   </div>
 </div>
 
-<!-- Practice sandbox: a free-write code + preview area, entirely separate from any assignment.
-     Not submitted or graded anywhere, no timer, no proctoring — just a place to try things out.
-     Code is kept in this browser's localStorage (scoped per logged-in username) so it survives
-     reloads, but never touches the server. -->
-<div id="practiceView" class="exam-editor-wrap" style="display:none;">
-  <div class="editor-header">
-    <div>
-      <strong>Practice sandbox</strong>
-      <span class="muted" style="margin-left:14px;">Not graded or submitted — just for trying things out</span>
+<!-- Practice compiler (modeled on onecompiler.com/html): multi-file editor (HTML/CSS/JS tabs),
+     Run button, live preview with a console panel, light/dark theme, named saves. Entirely
+     separate from any assignment — not graded or submitted, no timer, no proctoring. Everything
+     is kept in this browser's localStorage (scoped per username); nothing touches the server. -->
+<div id="practiceView" class="pc-wrap pc-light" style="display:none;">
+  <div class="pc-topbar">
+    <div class="pc-left">
+      <strong class="pc-brand">HTML Compiler</strong>
+      <span class="pc-lang">HTML</span>
+      <button id="practiceRunBtn" class="pc-run">Run &#9654;</button>
     </div>
-    <div style="display:flex; gap:10px; align-items:center;">
-      <button class="secondary" id="practiceResetBtn">Clear code</button>
-      <button class="secondary" id="practiceBackBtn">Back</button>
-    </div>
-  </div>
-  <div class="editor-header" style="flex-wrap:wrap; gap:8px;">
-    <div style="display:flex; gap:8px; align-items:center;">
-      <input id="practiceSaveName" type="text" placeholder="Name this save (e.g. Ex 2 draft)" style="width:220px;" />
-      <button class="secondary" id="practiceSaveBtn">Save as…</button>
-      <span class="muted" id="practiceSaveStatus" style="font-size:12px;"></span>
-    </div>
-    <div style="display:flex; gap:8px; align-items:center;">
-      <label class="muted" style="margin:0; font-size:12px;">Saved:</label>
-      <select id="practiceSavedSelect" style="width:200px;">
-        <option value="">— none —</option>
-      </select>
-      <button class="secondary" id="practiceLoadBtn">Load</button>
-      <button class="secondary danger" id="practiceDeleteBtn">Delete</button>
+    <div class="pc-right">
+      <button class="pc-icon-btn" id="practiceThemeBtn" title="Toggle light/dark theme">&#9788;</button>
+      <input id="practiceSaveName" type="text" placeholder="Name this save" class="pc-input" />
+      <button class="pc-btn" id="practiceSaveBtn">Save</button>
+      <select id="practiceSavedSelect" class="pc-input" style="width:150px;"><option value="">Saved…</option></select>
+      <button class="pc-btn" id="practiceLoadBtn">Open</button>
+      <button class="pc-btn pc-danger" id="practiceDeleteBtn">Delete</button>
+      <button class="pc-btn" id="practiceResetBtn">Reset</button>
+      <button class="pc-btn" id="practiceBackBtn">Back</button>
     </div>
   </div>
-  <div class="split">
-    <div class="pane left">
-      <div class="pane-header">HTML — write your code</div>
-      <textarea id="practiceCodeArea"></textarea>
+  <div class="pc-main">
+    <div class="pc-editor-col">
+      <div class="pc-tabs" id="practiceTabs"></div>
+      <div class="pc-editor-host"><textarea id="practiceCodeArea"></textarea></div>
     </div>
-    <div class="pane">
-      <div class="pane-header">Output preview</div>
+    <div class="pc-preview-col">
+      <div class="pc-preview-bar">
+        <span class="pc-preview-tab">&#128065; Preview</span>
+        <span class="pc-address">/</span>
+        <button class="pc-icon-btn" id="practiceReloadBtn" title="Reload preview">&#8635;</button>
+      </div>
       <iframe id="practicePreview" sandbox="allow-scripts"></iframe>
+      <div class="pc-console" id="practiceConsole">
+        <div class="pc-console-bar" id="practiceConsoleToggle">
+          <span>&#9656; Console</span>
+          <button class="pc-icon-btn" id="practiceConsoleClear" title="Clear console">Clear</button>
+        </div>
+        <div class="pc-console-body" id="practiceConsoleBody"></div>
+      </div>
     </div>
+  </div>
+  <div class="pc-status">
+    <span id="practiceStatus">Ready</span>
+    <span id="practiceSaveStatus"></span>
+    <span class="muted">Not graded or submitted — just for practice</span>
   </div>
 </div>
 

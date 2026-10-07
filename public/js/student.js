@@ -55,14 +55,25 @@
     $('instructionsCloseBtn').addEventListener('click', () => { $('instructionsModal').style.display = 'none'; });
     $('practiceBtn').addEventListener('click', openPractice);
     $('practiceBackBtn').addEventListener('click', () => { showAssignmentList(); });
-    $('practiceResetBtn').addEventListener('click', () => {
-      if (!confirm('Clear all code in the practice sandbox?')) return;
-      practiceCm.setValue('');
-      savePracticeCode();
-    });
+    $('practiceResetBtn').addEventListener('click', onPracticeReset);
     $('practiceSaveBtn').addEventListener('click', onPracticeSaveAs);
     $('practiceLoadBtn').addEventListener('click', onPracticeLoad);
     $('practiceDeleteBtn').addEventListener('click', onPracticeDelete);
+    $('practiceRunBtn').addEventListener('click', runPractice);
+    $('practiceReloadBtn').addEventListener('click', runPractice);
+    $('practiceThemeBtn').addEventListener('click', togglePracticeTheme);
+    $('practiceConsoleToggle').addEventListener('click', (e) => {
+      if (e.target.id === 'practiceConsoleClear') return;
+      $('practiceConsole').classList.toggle('open');
+    });
+    $('practiceConsoleClear').addEventListener('click', () => { $('practiceConsoleBody').innerHTML = ''; });
+    window.addEventListener('message', onPracticeMessage);
+    document.addEventListener('keydown', (e) => {
+      if ($('practiceView').style.display !== 'none' && (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        runPractice();
+      }
+    });
 
     socket = io({ withCredentials: true });
 
@@ -267,100 +278,42 @@
     }
   }
 
-  // ---------------- Practice sandbox ----------------
+  // ---------------- Practice compiler (OneCompiler-style) ----------------
+  // Multi-file (HTML/CSS/JS) editor with Run, live preview and a console panel. All state lives
+  // in this browser's localStorage, scoped per username — never sent to the server.
 
-  function practiceStorageKey() {
-    return `html-lms-practice-code:${me ? me.username : 'anon'}`;
+  const PRACTICE_DEFAULT_FILES = {
+    'index.html': '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8" />\n  <title>Practice</title>\n  <link rel="stylesheet" href="styles.css" />\n</head>\n<body>\n  <h1>Hello, world!</h1>\n  <script src="script.js"></script>\n</body>\n</html>',
+    'styles.css': 'body {\n  font-family: Arial, sans-serif;\n}\n',
+    'script.js': '// JavaScript goes here\nconsole.log("Hello from script.js");\n'
+  };
+
+  let practiceFiles = {};
+  let practiceActive = 'index.html';
+  let practiceDark = false;
+  const practiceDocs = {}; // CodeMirror.Doc per file
+
+  function practiceKey(kind) { return `html-lms-practice-${kind}:${me ? me.username : 'anon'}`; }
+
+  function readJson(key, fallback) {
+    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch (e) { return fallback; }
+  }
+  function writeJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage unavailable */ }
   }
 
-  // Named saves are a separate localStorage slot from the auto-saved "current draft" above —
-  // each is a distinct snapshot the student named themselves, so switching between them (or
-  // resetting the scratch area) never touches the others.
-  function practiceSavesKey() {
-    return `html-lms-practice-saves:${me ? me.username : 'anon'}`;
-  }
-
+  // Saves from the older single-file sandbox have {name, code}; the new format has {name, files}.
   function loadPracticeSaves() {
-    try {
-      const raw = localStorage.getItem(practiceSavesKey());
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      return [];
-    }
+    const arr = readJson(practiceKey('saves'), []);
+    return Array.isArray(arr) ? arr.map((x) => (x.files ? x : { ...x, files: { 'index.html': x.code || '' } })) : [];
   }
+  function writePracticeSaves(saves) { writeJson(practiceKey('saves'), saves); }
 
-  function writePracticeSaves(saves) {
-    try { localStorage.setItem(practiceSavesKey(), JSON.stringify(saves)); } catch (e) { /* storage unavailable, silently skip */ }
+  function practiceMode(name) {
+    if (/\.css$/i.test(name)) return 'css';
+    if (/\.js$/i.test(name)) return 'javascript';
+    return 'htmlmixed';
   }
-
-  function refreshPracticeSavedSelect(selectName) {
-    const saves = loadPracticeSaves().sort((a, b) => a.name.localeCompare(b.name));
-    const select = $('practiceSavedSelect');
-    select.innerHTML = '<option value="">— none —</option>'
-      + saves.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join('');
-    if (selectName) select.value = selectName;
-  }
-
-  function onPracticeSaveAs() {
-    const nameInput = $('practiceSaveName');
-    const name = nameInput.value.trim();
-    const statusEl = $('practiceSaveStatus');
-    if (!name) {
-      statusEl.textContent = 'Enter a name first.';
-      return;
-    }
-    const saves = loadPracticeSaves();
-    const existingIdx = saves.findIndex((s) => s.name === name);
-    if (existingIdx !== -1 && !confirm(`A save named "${name}" already exists. Overwrite it?`)) {
-      return;
-    }
-    const entry = { name, code: practiceCm.getValue(), saved_at: new Date().toISOString() };
-    if (existingIdx !== -1) saves[existingIdx] = entry; else saves.push(entry);
-    writePracticeSaves(saves);
-    refreshPracticeSavedSelect(name);
-    statusEl.textContent = `Saved as "${name}".`;
-    setTimeout(() => { if (statusEl.textContent === `Saved as "${name}".`) statusEl.textContent = ''; }, 3000);
-  }
-
-  function onPracticeLoad() {
-    const name = $('practiceSavedSelect').value;
-    const statusEl = $('practiceSaveStatus');
-    if (!name) {
-      statusEl.textContent = 'Pick a saved session first.';
-      return;
-    }
-    const saves = loadPracticeSaves();
-    const entry = saves.find((s) => s.name === name);
-    if (!entry) {
-      statusEl.textContent = 'That save no longer exists.';
-      refreshPracticeSavedSelect();
-      return;
-    }
-    practiceCm.setValue(entry.code || '');
-    updatePracticePreview();
-    savePracticeCode(); // also becomes the new scratch draft
-    $('practiceSaveName').value = name;
-    statusEl.textContent = `Loaded "${name}".`;
-    setTimeout(() => { if (statusEl.textContent === `Loaded "${name}".`) statusEl.textContent = ''; }, 3000);
-  }
-
-  function onPracticeDelete() {
-    const name = $('practiceSavedSelect').value;
-    const statusEl = $('practiceSaveStatus');
-    if (!name) {
-      statusEl.textContent = 'Pick a saved session first.';
-      return;
-    }
-    if (!confirm(`Delete the saved session "${name}"? This can't be undone.`)) return;
-    const saves = loadPracticeSaves().filter((s) => s.name !== name);
-    writePracticeSaves(saves);
-    refreshPracticeSavedSelect();
-    statusEl.textContent = `Deleted "${name}".`;
-  }
-
-  const PRACTICE_DEFAULT_CODE =
-    '<!DOCTYPE html>\n<html>\n<head>\n  <title>Practice</title>\n</head>\n<body>\n  <h1>Try something out!</h1>\n</body>\n</html>';
 
   function openPractice() {
     stopProctoring();
@@ -369,38 +322,210 @@
     $('examView').style.display = 'none';
     $('practiceView').style.display = 'flex';
 
-    let saved = '';
-    try { saved = localStorage.getItem(practiceStorageKey()) || ''; } catch (e) { /* storage unavailable */ }
+    const draft = readJson(practiceKey('files'), null);
+    if (draft && typeof draft === 'object' && Object.keys(draft).length) {
+      practiceFiles = draft;
+    } else {
+      // Migrate the old single-file scratch draft, if there is one.
+      let legacy = '';
+      try { legacy = localStorage.getItem(`html-lms-practice-code:${me ? me.username : 'anon'}`) || ''; } catch (e) { /* ignore */ }
+      practiceFiles = { ...PRACTICE_DEFAULT_FILES };
+      if (legacy) practiceFiles['index.html'] = legacy;
+    }
+    practiceDark = (() => { try { return localStorage.getItem(practiceKey('theme')) === 'dark'; } catch (e) { return false; } })();
+    applyPracticeTheme();
 
-    const textarea = $('practiceCodeArea');
-    textarea.value = saved || PRACTICE_DEFAULT_CODE;
-    if (practiceCm) { practiceCm.toTextArea(); practiceCm = null; }
-    practiceCm = CodeMirror.fromTextArea(textarea, {
-      mode: 'htmlmixed',
-      theme: 'dracula',
-      lineNumbers: true,
-      lineWrapping: true,
-      tabSize: 2,
-      autoCloseBrackets: true
-    });
-    updatePracticePreview();
-    practiceCm.on('change', () => {
-      updatePracticePreview();
-      clearTimeout(practiceSaveTimer);
-      practiceSaveTimer = setTimeout(savePracticeCode, 500);
-    });
-
+    if (!practiceCm) {
+      practiceCm = CodeMirror.fromTextArea($('practiceCodeArea'), {
+        mode: 'htmlmixed', lineNumbers: true, lineWrapping: true, tabSize: 2, autoCloseBrackets: true
+      });
+      practiceCm.on('change', () => {
+        if (!practiceActive || practiceFiles[practiceActive] === undefined) return;
+        practiceFiles[practiceActive] = practiceCm.getValue();
+        clearTimeout(practiceSaveTimer);
+        practiceSaveTimer = setTimeout(savePracticeDraft, 400);
+      });
+    }
+    Object.keys(practiceDocs).forEach((k) => delete practiceDocs[k]);
+    practiceActive = practiceFiles['index.html'] !== undefined ? 'index.html' : Object.keys(practiceFiles)[0];
+    renderPracticeTabs();
+    switchPracticeFile(practiceActive);
     $('practiceSaveName').value = '';
     $('practiceSaveStatus').textContent = '';
+    $('practiceConsoleBody').innerHTML = '';
     refreshPracticeSavedSelect();
+    runPractice();
+    setTimeout(() => practiceCm.refresh(), 50);
   }
 
-  function updatePracticePreview() {
-    $('practicePreview').srcdoc = practiceCm.getValue();
+  function savePracticeDraft() { writeJson(practiceKey('files'), practiceFiles); }
+
+  function renderPracticeTabs() {
+    const bar = $('practiceTabs');
+    bar.innerHTML = '';
+    Object.keys(practiceFiles).forEach((name) => {
+      const tab = document.createElement('div');
+      tab.className = 'pc-tab' + (name === practiceActive ? ' active' : '');
+      tab.innerHTML = `<span>${escapeHtml(name)}</span>${Object.keys(practiceFiles).length > 1 ? '<span class="pc-x" title="Delete file">&times;</span>' : ''}`;
+      tab.addEventListener('click', (e) => {
+        if (e.target.classList.contains('pc-x')) {
+          if (confirm(`Delete ${name}?`)) {
+            delete practiceFiles[name];
+            delete practiceDocs[name];
+            if (practiceActive === name) practiceActive = Object.keys(practiceFiles)[0];
+            savePracticeDraft();
+            renderPracticeTabs();
+            switchPracticeFile(practiceActive);
+          }
+          return;
+        }
+        switchPracticeFile(name);
+      });
+      bar.appendChild(tab);
+    });
+    const add = document.createElement('div');
+    add.className = 'pc-add';
+    add.title = 'New file';
+    add.textContent = '+';
+    add.addEventListener('click', () => {
+      const name = (prompt('New file name (e.g. about.html, theme.css, app.js):') || '').trim();
+      if (!name) return;
+      if (!/^[\w.-]+\.(html|css|js)$/i.test(name)) { alert('File name must end in .html, .css or .js (letters, numbers, - _ . only).'); return; }
+      if (practiceFiles[name] !== undefined) { alert('A file with that name already exists.'); return; }
+      practiceFiles[name] = '';
+      savePracticeDraft();
+      renderPracticeTabs();
+      switchPracticeFile(name);
+    });
+    bar.appendChild(add);
   }
 
-  function savePracticeCode() {
-    try { localStorage.setItem(practiceStorageKey(), practiceCm.getValue()); } catch (e) { /* storage unavailable, silently skip */ }
+  function switchPracticeFile(name) {
+    practiceActive = name;
+    if (!practiceDocs[name]) practiceDocs[name] = CodeMirror.Doc(practiceFiles[name] || '', practiceMode(name));
+    practiceCm.swapDoc(practiceDocs[name]);
+    renderPracticeTabs();
+    practiceCm.refresh();
+    practiceCm.focus();
+  }
+
+  function applyPracticeTheme() {
+    const view = $('practiceView');
+    view.classList.toggle('pc-dark', practiceDark);
+    view.classList.toggle('pc-light', !practiceDark);
+    if (practiceCm) practiceCm.setOption('theme', practiceDark ? 'dracula' : 'default');
+    $('practiceThemeBtn').innerHTML = practiceDark ? '&#9790;' : '&#9788;';
+  }
+  function togglePracticeTheme() {
+    practiceDark = !practiceDark;
+    try { localStorage.setItem(practiceKey('theme'), practiceDark ? 'dark' : 'light'); } catch (e) { /* ignore */ }
+    applyPracticeTheme();
+  }
+
+  // Builds one document for the preview: the entry HTML file, with <link href="x.css"> and
+  // <script src="x.js"> pointing at one of the practice files replaced by inline <style>/<script>.
+  // A console-capture script is injected first so console.* output and errors show in the panel.
+  function buildPracticeDoc() {
+    const entry = practiceFiles['index.html'] !== undefined ? 'index.html' : (Object.keys(practiceFiles).find((n) => /\.html$/i.test(n)) || null);
+    let html = entry ? practiceFiles[entry] : '';
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    Object.keys(practiceFiles).forEach((name) => {
+      if (/\.css$/i.test(name)) {
+        html = html.replace(new RegExp(`<link[^>]*href=["']\\.?/?${esc(name)}["'][^>]*>`, 'gi'), () => `<style>\n${practiceFiles[name]}\n</style>`);
+      } else if (/\.js$/i.test(name)) {
+        html = html.replace(new RegExp(`<script[^>]*src=["']\\.?/?${esc(name)}["'][^>]*>\\s*</script>`, 'gi'), () => `<script>\n${practiceFiles[name].replace(/<\/script/gi, '<\\/script')}\n<\/script>`);
+      }
+    });
+    const capture = `<script>(function(){
+      function send(level,args){try{parent.postMessage({__pc:1,level:level,text:Array.prototype.map.call(args,function(a){
+        if(typeof a==='object'&&a!==null){try{return JSON.stringify(a,null,2)}catch(e){return String(a)}}return String(a)}).join(' ')},'*')}catch(e){}}
+      ['log','info','warn','error','debug'].forEach(function(l){var o=console[l];console[l]=function(){send(l,arguments);try{o.apply(console,arguments)}catch(e){}}});
+      window.addEventListener('error',function(e){send('error',[e.message+(e.lineno?' (line '+e.lineno+')':'')])});
+      window.addEventListener('unhandledrejection',function(e){send('error',['Unhandled promise rejection: '+e.reason])});
+    })();<\/script>`;
+    return capture + html;
+  }
+
+  function runPractice() {
+    $('practiceConsoleBody').innerHTML = '';
+    $('practiceStatus').textContent = 'Running…';
+    $('practicePreview').srcdoc = buildPracticeDoc();
+    setTimeout(() => { $('practiceStatus').textContent = 'Ready'; }, 300);
+  }
+
+  function onPracticeMessage(e) {
+    if (!e.data || e.data.__pc !== 1) return;
+    if (e.source !== $('practicePreview').contentWindow) return;
+    const body = $('practiceConsoleBody');
+    const line = document.createElement('div');
+    line.className = 'pc-log ' + (e.data.level === 'error' ? 'error' : e.data.level === 'warn' ? 'warn' : '');
+    line.textContent = e.data.text;
+    body.appendChild(line);
+    body.scrollTop = body.scrollHeight;
+    if (e.data.level === 'error') $('practiceConsole').classList.add('open');
+  }
+
+  function onPracticeReset() {
+    if (!confirm('Reset to the default index.html / styles.css / script.js? Unsaved work in the sandbox will be lost.')) return;
+    practiceFiles = { ...PRACTICE_DEFAULT_FILES };
+    Object.keys(practiceDocs).forEach((k) => delete practiceDocs[k]);
+    savePracticeDraft();
+    practiceActive = 'index.html';
+    renderPracticeTabs();
+    switchPracticeFile('index.html');
+    runPractice();
+  }
+
+  function refreshPracticeSavedSelect(selectName) {
+    const saves = loadPracticeSaves().sort((a, b) => a.name.localeCompare(b.name));
+    const select = $('practiceSavedSelect');
+    select.innerHTML = '<option value="">Saved…</option>'
+      + saves.map((s) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.name)}</option>`).join('');
+    if (selectName) select.value = selectName;
+  }
+
+  function flashPracticeStatus(msg) {
+    const el = $('practiceSaveStatus');
+    el.textContent = msg;
+    setTimeout(() => { if (el.textContent === msg) el.textContent = ''; }, 3000);
+  }
+
+  function onPracticeSaveAs() {
+    const name = $('practiceSaveName').value.trim();
+    if (!name) { flashPracticeStatus('Enter a name first.'); return; }
+    const saves = loadPracticeSaves();
+    const idx = saves.findIndex((s) => s.name === name);
+    if (idx !== -1 && !confirm(`A save named "${name}" already exists. Overwrite it?`)) return;
+    const entry = { name, files: { ...practiceFiles }, saved_at: new Date().toISOString() };
+    if (idx !== -1) saves[idx] = entry; else saves.push(entry);
+    writePracticeSaves(saves);
+    refreshPracticeSavedSelect(name);
+    flashPracticeStatus(`Saved as "${name}".`);
+  }
+
+  function onPracticeLoad() {
+    const name = $('practiceSavedSelect').value;
+    if (!name) { flashPracticeStatus('Pick a saved session first.'); return; }
+    const entry = loadPracticeSaves().find((s) => s.name === name);
+    if (!entry) { flashPracticeStatus('That save no longer exists.'); refreshPracticeSavedSelect(); return; }
+    practiceFiles = { ...entry.files };
+    Object.keys(practiceDocs).forEach((k) => delete practiceDocs[k]);
+    savePracticeDraft();
+    practiceActive = practiceFiles['index.html'] !== undefined ? 'index.html' : Object.keys(practiceFiles)[0];
+    renderPracticeTabs();
+    switchPracticeFile(practiceActive);
+    $('practiceSaveName').value = name;
+    runPractice();
+    flashPracticeStatus(`Opened "${name}".`);
+  }
+
+  function onPracticeDelete() {
+    const name = $('practiceSavedSelect').value;
+    if (!name) { flashPracticeStatus('Pick a saved session first.'); return; }
+    if (!confirm(`Delete the saved session "${name}"? This can't be undone.`)) return;
+    writePracticeSaves(loadPracticeSaves().filter((s) => s.name !== name));
+    refreshPracticeSavedSelect();
+    flashPracticeStatus(`Deleted "${name}".`);
   }
 
   function renderViolations(violations) {
