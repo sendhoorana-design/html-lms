@@ -7,6 +7,13 @@ const testResultSchema = new mongoose.Schema({
   detail: String
 }, { _id: false });
 
+// Stored as an array rather than an object keyed by filename, since filenames contain dots
+// ("index.html") and dotted keys are awkward/unsafe as MongoDB field names.
+const fileSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  content: { type: String, default: '' }
+}, { _id: false });
+
 // One document per (exam, student) pair. The student's current/final code lives directly on
 // this document (folded in from what used to be a separate "submissions" table) since it's
 // always a strict 1:1 relationship — no need for a join.
@@ -19,6 +26,9 @@ const examAssignmentSchema = new mongoose.Schema({
     default: 'not_started'
   },
   code: { type: String, default: '' },
+  // Only used for exams with multi_file_enabled. `code` above is kept in sync as the combined
+  // single-document version (what's graded, and what the admin sees as rendered).
+  files: { type: [fileSchema], default: [] },
   started_at: { type: Date, default: null },
   submitted_at: { type: Date, default: null },
   last_seen_at: { type: Date, default: null },

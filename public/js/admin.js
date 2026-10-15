@@ -849,6 +849,7 @@
     editingExamId = null;
     $('addExamForm').reset();
     $('e_proctoring').checked = true;
+    $('e_multifile').checked = true;
     $('e_vlimit_none').checked = false;
     $('e_vlimit').disabled = false;
     $('checksList').innerHTML = '';
@@ -878,6 +879,7 @@
     $('e_vlimit').value = hasNoLimit ? 5 : (ex.violation_limit || 5);
     $('e_vlimit').disabled = hasNoLimit;
     $('e_proctoring').checked = ex.proctoring_enabled !== false;
+    $('e_multifile').checked = !!ex.multi_file_enabled;
 
     $('checksList').innerHTML = '';
     (ex.checks || []).forEach((c) => addCheckRow(c));
@@ -899,6 +901,7 @@
       time_limit_minutes: parseInt($('e_time').value, 10) || 60,
       violation_limit: $('e_vlimit_none').checked ? 0 : (parseInt($('e_vlimit').value, 10) || 5),
       proctoring_enabled: $('e_proctoring').checked,
+      multi_file_enabled: $('e_multifile').checked,
       checks: collectChecks()
     };
     try {
@@ -1084,12 +1087,33 @@
     $('detailCodeStudent').textContent = `${data.assignment.full_name} — ${data.assignment.username}`;
 
     const textarea = $('detailCode');
-    textarea.value = data.code;
+    // Tear down the previous viewer first — toTextArea() writes its content back into the
+    // textarea, which used to overwrite the code just loaded, so opening another student's
+    // submission showed the previous student's code.
     if (detailCM) { detailCM.toTextArea(); detailCM = null; }
+    textarea.value = data.code;
     detailCM = CodeMirror.fromTextArea(textarea, {
       mode: 'htmlmixed', theme: 'dracula', lineNumbers: true, readOnly: true, lineWrapping: true
     });
     setTimeout(() => detailCM.refresh(), 50);
+
+    // Multi-file submissions: the main view shows the combined page (what's graded); this lets
+    // the admin flip to any individual file the student wrote.
+    const fileSel = $('detailFileSelect');
+    const fileNames = Object.keys(data.files || {});
+    if (fileNames.length) {
+      fileSel.style.display = 'block';
+      fileSel.innerHTML = '<option value="">Combined page (as graded)</option>'
+        + fileNames.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+      fileSel.onchange = () => {
+        const n = fileSel.value;
+        detailCM.setOption('mode', !n ? 'htmlmixed' : /\.css$/i.test(n) ? 'css' : /\.js$/i.test(n) ? 'javascript' : 'htmlmixed');
+        detailCM.setValue(n ? data.files[n] : data.code);
+      };
+    } else {
+      fileSel.style.display = 'none';
+      fileSel.onchange = null;
+    }
 
     const vList = $('detailViolations');
     vList.innerHTML = data.violations.length

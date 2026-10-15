@@ -142,6 +142,14 @@
           Turn this off for practice-style or low-stakes exams — the timer and auto-grading still work, but nothing is monitored or logged, and students aren't forced into fullscreen.
         </p>
 
+        <div class="checkbox-row mt-16">
+          <input id="e_multifile" type="checkbox" checked />
+          <label for="e_multifile" style="margin:0;">Multi-file editor (index.html / styles.css / script.js tabs, Run button and console, like an online compiler)</label>
+        </div>
+        <p class="muted" style="margin-top:4px; font-size:12px;">
+          Students can write HTML, CSS and JavaScript in separate tabs. Their files are combined into one page for auto-grading, so checks still work. Turn off for strict single-file exercises (e.g. practising the &lt;style&gt; tag).
+        </p>
+
         <label class="mt-16">Auto-grading checks <span class="muted">(optional)</span></label>
         <p class="muted" style="margin-top:0; font-size:12px;">
           Each check runs automatically when a student submits. Score = % of checks passed.
@@ -261,6 +269,7 @@
           <span>Submitted code</span>
           <span class="muted" id="detailCodeStudent" style="font-size:12px; font-weight:400;"></span>
         </h4>
+        <select id="detailFileSelect" style="display:none; margin-top:8px;"></select>
         <textarea id="detailCode" style="height:300px; margin-top:8px;"></textarea>
       </div>
       <div>
@@ -303,6 +312,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
 <script src="/js/admin.js"></script>
 </body>

@@ -281,6 +281,7 @@ router.get('/exams', asyncHandler(async (req, res) => {
     time_limit_minutes: e.time_limit_minutes,
     violation_limit: e.violation_limit,
     proctoring_enabled: e.proctoring_enabled !== false,
+    multi_file_enabled: !!e.multi_file_enabled,
     checks: e.checks || [],
     created_by: e.created_by ? e.created_by.toString() : null,
     created_at: e.created_at
@@ -308,7 +309,7 @@ function sanitizeChecks(rawChecks) {
 }
 
 router.post('/exams', asyncHandler(async (req, res) => {
-  const { title, instructions, starter_code, time_limit_minutes, violation_limit, proctoring_enabled, checks } = req.body;
+  const { title, instructions, starter_code, time_limit_minutes, violation_limit, proctoring_enabled, multi_file_enabled, checks } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
 
   const doc = {
@@ -319,6 +320,7 @@ router.post('/exams', asyncHandler(async (req, res) => {
     // "not provided" (undefined/null), which should still fall back to the default of 5.
     violation_limit: violation_limit === 0 ? 0 : (violation_limit || 5),
     proctoring_enabled: proctoring_enabled !== false,
+    multi_file_enabled: !!multi_file_enabled,
     checks: sanitizeChecks(checks),
     created_by: req.user.id
   };
@@ -345,7 +347,7 @@ router.put('/exams/:id/checks', asyncHandler(async (req, res) => {
 // still-empty assignment, see student.js), and checks changes simply apply the next time a
 // submission is (re-)graded. Same ownership rule as the checks-only update above.
 router.put('/exams/:id', asyncHandler(async (req, res) => {
-  const { title, instructions, starter_code, time_limit_minutes, violation_limit, proctoring_enabled, checks } = req.body;
+  const { title, instructions, starter_code, time_limit_minutes, violation_limit, proctoring_enabled, multi_file_enabled, checks } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
 
   const update = {
@@ -355,6 +357,7 @@ router.put('/exams/:id', asyncHandler(async (req, res) => {
     time_limit_minutes: time_limit_minutes || 60,
     violation_limit: violation_limit === 0 ? 0 : (violation_limit || 5),
     proctoring_enabled: proctoring_enabled !== false,
+    multi_file_enabled: !!multi_file_enabled,
     checks: sanitizeChecks(checks)
   };
 
@@ -524,6 +527,8 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
   }
 
   const violations = await Violation.find({ assignment: a._id }).sort({ created_at: -1 }).lean();
+  const fileMap = {};
+  (a.files || []).forEach((f) => { fileMap[f.name] = f.content; });
 
   res.json({
     assignment: {
@@ -543,6 +548,7 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
       checks: a.exam.checks || []
     },
     code: a.code || '',
+    files: fileMap,
     test_results: a.test_results || [],
     score: typeof a.score === 'number' ? a.score : null,
     violations: violations.map((v) => ({

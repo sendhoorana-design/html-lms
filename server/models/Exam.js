@@ -29,6 +29,10 @@ const examSchema = new mongoose.Schema({
   // (timer, auto-grading, submission) still applies. Defaults to true so existing exams keep their
   // current behavior.
   proctoring_enabled: { type: Boolean, default: true },
+  // When true, students get a multi-file editor (index.html / styles.css / script.js tabs, add
+  // more) with Run + console, like an online compiler. Their files are folded into one HTML
+  // document for auto-grading. Defaults to false so existing single-file exams are unchanged.
+  multi_file_enabled: { type: Boolean, default: false },
   // Auto-grading checks run against the student's submitted code (see server/utils/grader.js).
   // Empty array = no auto-grading for this exam, just manual review.
   checks: { type: [checkSchema], default: [] },

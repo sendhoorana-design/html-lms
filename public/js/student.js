@@ -11,10 +11,79 @@
   let currentInstructions = '';
   let currentRequirements = [];
   let lastAssignments = [];
+  let examMulti = false;
+  let examFiles = {};
+  let examActive = 'index.html';
+  let examReadOnly = false;
+  const examDocs = {};
+  let previewTimer = null;
   let practiceCm = null;
   let practiceSaveTimer = null;
 
   const $ = (id) => document.getElementById(id);
+
+  // ---------------- Shared compiler helpers (used by the exam editor and the practice sandbox) ----------------
+  // Keep combineFiles() in step with server/utils/combine.js — the preview a student sees must
+  // match the single document that gets graded.
+
+  const PC_CAPTURE = `<script>(function(){
+      function send(level,args){try{parent.postMessage({__pc:1,level:level,text:Array.prototype.map.call(args,function(a){
+        if(typeof a==='object'&&a!==null){try{return JSON.stringify(a,null,2)}catch(e){return String(a)}}return String(a)}).join(' ')},'*')}catch(e){}}
+      ['log','info','warn','error','debug'].forEach(function(l){var o=console[l];console[l]=function(){send(l,arguments);try{o.apply(console,arguments)}catch(e){}}});
+      window.addEventListener('error',function(e){send('error',[e.message+(e.lineno?' (line '+e.lineno+')':'')])});
+      window.addEventListener('unhandledrejection',function(e){send('error',['Unhandled promise rejection: '+e.reason])});
+    })();<\/script>`;
+
+  // Insert the console-capture script *inside* the document (after <head>, else <html>, else the
+  // doctype) instead of in front of it. Putting anything before <!DOCTYPE> would drop the preview
+  // into quirks mode and change how the page lays out.
+  function injectCapture(html) {
+    const at = (re) => {
+      const m = re.exec(html);
+      return m ? m.index + m[0].length : -1;
+    };
+    let pos = at(/<head[^>]*>/i);
+    if (pos < 0) pos = at(/<html[^>]*>/i);
+    if (pos < 0) pos = at(/<!doctype[^>]*>/i);
+    if (pos < 0) return PC_CAPTURE + html;
+    return html.slice(0, pos) + PC_CAPTURE + html.slice(pos);
+  }
+
+  function combineFiles(files, autoInclude) {
+    const esc = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const names = Object.keys(files || {});
+    const entry = files && files['index.html'] !== undefined ? 'index.html' : names.find((n) => /\.html$/i.test(n));
+    let html = entry ? files[entry] : '';
+    names.forEach((name) => {
+      if (/\.css$/i.test(name)) {
+        let used = false;
+        html = html.replace(new RegExp(`<link[^>]*href=["']\\.?/?${esc(name)}["'][^>]*>`, 'gi'), () => { used = true; return `<style>\n${files[name]}\n</style>`; });
+        if (!used && autoInclude && files[name].trim()) {
+          const tag = `<style>\n${files[name]}\n</style>`;
+          html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, () => `${tag}\n</head>`) : tag + html;
+        }
+      } else if (/\.js$/i.test(name)) {
+        const safe = files[name].replace(/<\/script/gi, '<\\/script');
+        let used = false;
+        html = html.replace(new RegExp(`<script[^>]*src=["']\\.?/?${esc(name)}["'][^>]*>\\s*</script>`, 'gi'), () => { used = true; return `<script>\n${safe}\n<\/script>`; });
+        if (!used && autoInclude && files[name].trim()) {
+          const tag = `<script>\n${safe}\n<\/script>`;
+          html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, () => `${tag}\n</body>`) : html + tag;
+        }
+      }
+    });
+    return html;
+  }
+
+  function appendConsoleLine(bodyId, consoleId, data) {
+    const body = $(bodyId);
+    const line = document.createElement('div');
+    line.className = 'pc-log ' + (data.level === 'error' ? 'error' : data.level === 'warn' ? 'warn' : '');
+    line.textContent = data.text;
+    body.appendChild(line);
+    body.scrollTop = body.scrollHeight;
+    if (data.level === 'error') $(consoleId).classList.add('open');
+  }
 
   async function api(path, opts = {}) {
     const res = await fetch(path, {
@@ -68,10 +137,16 @@
     });
     $('practiceConsoleClear').addEventListener('click', () => { $('practiceConsoleBody').innerHTML = ''; });
     window.addEventListener('message', onPracticeMessage);
+    $('examRunBtn').addEventListener('click', renderExamPreview);
+    $('examConsoleToggle').addEventListener('click', (e) => {
+      if (e.target.id === 'examConsoleClear') return;
+      $('examConsole').classList.toggle('open');
+    });
+    $('examConsoleClear').addEventListener('click', () => { $('examConsoleBody').innerHTML = ''; });
     document.addEventListener('keydown', (e) => {
-      if ($('practiceView').style.display !== 'none' && (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        runPractice();
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if ($('practiceView').style.display !== 'none') { e.preventDefault(); runPractice(); }
+        else if ($('examView').style.display !== 'none') { e.preventDefault(); renderExamPreview(); }
       }
     });
 
@@ -137,6 +212,8 @@
   }
 
   async function showAssignmentList() {
+    clearTimeout(saveTimer);
+    clearTimeout(previewTimer);
     stopProctoring();
     currentAssignmentId = null;
     $('examView').style.display = 'none';
@@ -199,6 +276,13 @@
 
     const proctoringEnabled = data.assignment.proctoring_enabled !== false;
     $('proctoringOffBadge').style.display = proctoringEnabled ? 'none' : 'inline-block';
+
+    // Multi-file exams (HTML/CSS/JS tabs) vs the classic single-file editor.
+    examMulti = !!data.assignment.multi_file_enabled;
+    examFiles = examMulti
+      ? (data.files && Object.keys(data.files).length ? { ...data.files } : { 'index.html': data.code || '', 'styles.css': '', 'script.js': '' })
+      : {};
+    $('examConsoleBody').innerHTML = '';
 
     if (data.readOnly) {
       // Past submission or locked exam: show saved code + re-rendered output, read-only, no proctoring.
@@ -422,28 +506,8 @@
     applyPracticeTheme();
   }
 
-  // Builds one document for the preview: the entry HTML file, with <link href="x.css"> and
-  // <script src="x.js"> pointing at one of the practice files replaced by inline <style>/<script>.
-  // A console-capture script is injected first so console.* output and errors show in the panel.
   function buildPracticeDoc() {
-    const entry = practiceFiles['index.html'] !== undefined ? 'index.html' : (Object.keys(practiceFiles).find((n) => /\.html$/i.test(n)) || null);
-    let html = entry ? practiceFiles[entry] : '';
-    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    Object.keys(practiceFiles).forEach((name) => {
-      if (/\.css$/i.test(name)) {
-        html = html.replace(new RegExp(`<link[^>]*href=["']\\.?/?${esc(name)}["'][^>]*>`, 'gi'), () => `<style>\n${practiceFiles[name]}\n</style>`);
-      } else if (/\.js$/i.test(name)) {
-        html = html.replace(new RegExp(`<script[^>]*src=["']\\.?/?${esc(name)}["'][^>]*>\\s*</script>`, 'gi'), () => `<script>\n${practiceFiles[name].replace(/<\/script/gi, '<\\/script')}\n<\/script>`);
-      }
-    });
-    const capture = `<script>(function(){
-      function send(level,args){try{parent.postMessage({__pc:1,level:level,text:Array.prototype.map.call(args,function(a){
-        if(typeof a==='object'&&a!==null){try{return JSON.stringify(a,null,2)}catch(e){return String(a)}}return String(a)}).join(' ')},'*')}catch(e){}}
-      ['log','info','warn','error','debug'].forEach(function(l){var o=console[l];console[l]=function(){send(l,arguments);try{o.apply(console,arguments)}catch(e){}}});
-      window.addEventListener('error',function(e){send('error',[e.message+(e.lineno?' (line '+e.lineno+')':'')])});
-      window.addEventListener('unhandledrejection',function(e){send('error',['Unhandled promise rejection: '+e.reason])});
-    })();<\/script>`;
-    return capture + html;
+    return injectCapture(combineFiles(practiceFiles, false));
   }
 
   function runPractice() {
@@ -453,16 +517,11 @@
     setTimeout(() => { $('practiceStatus').textContent = 'Ready'; }, 300);
   }
 
+  // Console output from either preview iframe (exam editor or practice sandbox).
   function onPracticeMessage(e) {
     if (!e.data || e.data.__pc !== 1) return;
-    if (e.source !== $('practicePreview').contentWindow) return;
-    const body = $('practiceConsoleBody');
-    const line = document.createElement('div');
-    line.className = 'pc-log ' + (e.data.level === 'error' ? 'error' : e.data.level === 'warn' ? 'warn' : '');
-    line.textContent = e.data.text;
-    body.appendChild(line);
-    body.scrollTop = body.scrollHeight;
-    if (e.data.level === 'error') $('practiceConsole').classList.add('open');
+    if (e.source === $('practicePreview').contentWindow) appendConsoleLine('practiceConsoleBody', 'practiceConsole', e.data);
+    else if (e.source === $('preview').contentWindow) appendConsoleLine('examConsoleBody', 'examConsole', e.data);
   }
 
   function onPracticeReset() {
@@ -572,11 +631,18 @@
   }
 
   function initEditor(code, readOnly) {
+    examReadOnly = readOnly;
     const textarea = $('codeArea');
-    textarea.value = code;
+    examActive = examMulti ? (examFiles['index.html'] !== undefined ? 'index.html' : Object.keys(examFiles)[0]) : 'index.html';
+    // Tear down the previous editor *before* setting the textarea's value: CodeMirror's
+    // toTextArea() writes the old editor's content back into the textarea, which used to clobber
+    // the freshly loaded code — so opening a second assignment showed the previous one's code
+    // (and autosave could then overwrite the real code with it).
     if (cm) { cm.toTextArea(); cm = null; }
+    textarea.value = examMulti ? (examFiles[examActive] || '') : code;
+    Object.keys(examDocs).forEach((k) => delete examDocs[k]);
     cm = CodeMirror.fromTextArea(textarea, {
-      mode: 'htmlmixed',
+      mode: examMulti ? examModeFor(examActive) : 'htmlmixed',
       theme: 'dracula',
       lineNumbers: true,
       lineWrapping: true,
@@ -584,12 +650,19 @@
       autoCloseBrackets: true,
       readOnly: readOnly ? 'nocursor' : false
     });
-    updatePreview();
+    $('examPaneHeader').style.display = examMulti ? 'none' : 'block';
+    $('examTabs').style.display = examMulti ? 'flex' : 'none';
+    if (examMulti) {
+      examDocs[examActive] = cm.getDoc();
+      renderExamTabs();
+    }
+    renderExamPreview();
 
     if (readOnly) return;
 
     cm.on('change', () => {
-      updatePreview();
+      if (examMulti) examFiles[examActive] = cm.getValue();
+      schedulePreview();
       scheduleSave();
     });
 
@@ -600,9 +673,111 @@
     wrapper.addEventListener('cut', (e) => { e.preventDefault(); logViolation('cut', 'Cut blocked in editor'); });
   }
 
-  function updatePreview() {
-    const iframe = $('preview');
-    iframe.srcdoc = cm.getValue();
+  function examModeFor(name) {
+    if (/\.css$/i.test(name)) return 'css';
+    if (/\.js$/i.test(name)) return 'javascript';
+    return 'htmlmixed';
+  }
+
+  // Native prompt()/confirm() dialogs make browsers exit fullscreen, which proctoring would log
+  // as a violation — so adding/deleting files in the exam editor uses inline controls instead.
+  let examTabMessage = '';
+  function renderExamTabs() {
+    const bar = $('examTabs');
+    bar.innerHTML = '';
+    const names = Object.keys(examFiles);
+    names.forEach((name) => {
+      const tab = document.createElement('div');
+      tab.className = 'pc-tab' + (name === examActive ? ' active' : '');
+      const deletable = !examReadOnly && name !== 'index.html';
+      tab.innerHTML = `<span>${escapeHtml(name)}</span>${deletable ? '<span class="pc-x" title="Delete file">&times;</span>' : ''}`;
+      tab.addEventListener('click', (e) => {
+        if (e.target.classList.contains('pc-x')) {
+          const x = e.target;
+          if (x.dataset.armed) {
+            delete examFiles[name];
+            delete examDocs[name];
+            if (examActive === name) examActive = 'index.html';
+            examTabMessage = '';
+            switchExamFile(examActive);
+            scheduleSave();
+            schedulePreview();
+          } else {
+            x.dataset.armed = '1';
+            x.textContent = 'delete?';
+            setTimeout(() => { if (x.isConnected) { delete x.dataset.armed; x.innerHTML = '&times;'; } }, 3000);
+          }
+          return;
+        }
+        switchExamFile(name);
+      });
+      bar.appendChild(tab);
+    });
+    if (!examReadOnly) {
+      const add = document.createElement('div');
+      add.className = 'pc-add';
+      add.title = 'New file';
+      add.textContent = '+';
+      add.addEventListener('click', () => {
+        add.style.display = 'none';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'name.css / .js / .html';
+        input.style.cssText = 'width:160px; margin:4px 8px; padding:4px 8px; font-size:12px;';
+        input.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Escape') { renderExamTabs(); return; }
+          if (ev.key !== 'Enter') return;
+          ev.preventDefault();
+          const name = input.value.trim();
+          if (!/^[\w.-]{1,40}\.(html|css|js)$/i.test(name)) { examTabMessage = 'Use a name ending in .html, .css or .js'; renderExamTabs(); return; }
+          if (examFiles[name] !== undefined) { examTabMessage = 'That file already exists'; renderExamTabs(); return; }
+          if (Object.keys(examFiles).length >= 20) { examTabMessage = 'Too many files'; renderExamTabs(); return; }
+          examFiles[name] = '';
+          examTabMessage = '';
+          switchExamFile(name);
+          scheduleSave();
+        });
+        bar.appendChild(input);
+        input.focus();
+      });
+      bar.appendChild(add);
+    }
+    if (examTabMessage) {
+      const msg = document.createElement('span');
+      msg.style.cssText = 'color:#dc3a5e; font-size:12px; padding:0 10px;';
+      msg.textContent = examTabMessage;
+      bar.appendChild(msg);
+    }
+  }
+
+  function switchExamFile(name) {
+    examActive = name;
+    if (!examDocs[name]) examDocs[name] = CodeMirror.Doc(examFiles[name] || '', examModeFor(name));
+    cm.swapDoc(examDocs[name]);
+    renderExamTabs();
+    cm.refresh();
+    if (!examReadOnly) cm.focus();
+  }
+
+  function buildExamDoc() {
+    return injectCapture(examMulti ? combineFiles(examFiles, true) : cm.getValue());
+  }
+
+  function renderExamPreview() {
+    clearTimeout(previewTimer);
+    $('examConsoleBody').innerHTML = '';
+    $('preview').srcdoc = buildExamDoc();
+  }
+
+  // Re-rendering re-runs the student's JavaScript, so wait for a pause in typing first instead of
+  // re-running (and re-logging) on every keystroke.
+  function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(renderExamPreview, 500);
+  }
+
+  function savePayload() {
+    return examMulti ? { files: examFiles } : { code: cm.getValue() };
   }
 
   function scheduleSave() {
@@ -612,7 +787,7 @@
       try {
         await api(`/api/student/assignments/${currentAssignmentId}/code`, {
           method: 'PUT',
-          body: JSON.stringify({ code: cm.getValue() })
+          body: JSON.stringify(savePayload())
         });
         $('saveStatus').textContent = 'Saved';
       } catch (e) {
@@ -677,8 +852,9 @@
       const confirmed = await confirmSubmitDialog();
       if (!confirmed) return;
     }
+    clearTimeout(saveTimer); // the final save below supersedes any pending autosave
     try {
-      await api(`/api/student/assignments/${currentAssignmentId}/code`, { method: 'PUT', body: JSON.stringify({ code: cm.getValue() }) });
+      await api(`/api/student/assignments/${currentAssignmentId}/code`, { method: 'PUT', body: JSON.stringify(savePayload()) });
     } catch (e) { /* ignore save error on submit */ }
     await api(`/api/student/assignments/${currentAssignmentId}/submit`, { method: 'POST' });
     stopProctoring();

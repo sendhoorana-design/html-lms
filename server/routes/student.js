@@ -6,6 +6,7 @@ const Violation = require('../models/Violation');
 const { authRequired, requireRole } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 const { runChecks } = require('../utils/grader');
+const { sanitizeFiles, combineFiles, filesToArray, filesToObject } = require('../utils/combine');
 
 const router = express.Router();
 router.use(authRequired, requireRole('student'));
@@ -111,9 +112,11 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
       starter_code: assignment.exam.starter_code,
       time_limit_minutes: assignment.exam.time_limit_minutes,
       violation_limit: assignment.exam.violation_limit,
-      proctoring_enabled: assignment.exam.proctoring_enabled !== false
+      proctoring_enabled: assignment.exam.proctoring_enabled !== false,
+      multi_file_enabled: !!assignment.exam.multi_file_enabled
     },
     code: assignment.code || '',
+    files: filesToObject(assignment.files),
     readOnly,
     violations,
     // Check labels only (never the selector/text/pattern used to grade), so a student can see
@@ -124,16 +127,26 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
   });
 }));
 
-// Autosave code
+// Autosave code. For multi-file exams the client sends { files: { name: content } }; the files
+// are stored as-is and `code` is kept as the combined single document (what gets graded).
 router.put('/assignments/:id/code', asyncHandler(async (req, res) => {
-  const { code } = req.body;
-  const assignment = await ExamAssignment.findOne({ _id: req.params.id, student: req.user.id });
+  const { code, files } = req.body;
+  const assignment = await ExamAssignment.findOne({ _id: req.params.id, student: req.user.id }).populate('exam', 'multi_file_enabled');
   if (!assignment) return res.status(404).json({ error: 'Not found' });
   if (assignment.status === 'locked' || assignment.status === 'submitted') {
     return res.status(423).json({ error: 'Exam is no longer editable' });
   }
 
-  assignment.code = code;
+  if (assignment.exam && assignment.exam.multi_file_enabled && files !== undefined) {
+    const clean = sanitizeFiles(files);
+    if (!clean) return res.status(400).json({ error: 'Invalid files (names must end in .html/.css/.js, max 20 files)' });
+    assignment.files = filesToArray(clean);
+    assignment.code = combineFiles(clean, true);
+  } else if (typeof code === 'string') {
+    assignment.code = code;
+  } else {
+    return res.status(400).json({ error: 'code required' });
+  }
   assignment.last_seen_at = new Date();
   await assignment.save();
   res.json({ ok: true });
