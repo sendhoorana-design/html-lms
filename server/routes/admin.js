@@ -8,6 +8,9 @@ const Violation = require('../models/Violation');
 const { authRequired, requireRole, requireSuperAdmin } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 const { runChecks } = require('../utils/grader');
+const Feedback = require('../models/Feedback');
+const FeedbackSettings = require('../models/FeedbackSettings');
+const { getFeedbackSettings, FEEDBACK_CATEGORIES } = require('../utils/feedbackSettings');
 
 const router = express.Router();
 router.use(authRequired, requireRole('admin'));
@@ -649,6 +652,45 @@ router.post('/assignments/:id/run-tests', asyncHandler(async (req, res) => {
   await assignment.save();
 
   res.json({ ok: true, test_results: results, score });
+}));
+
+// ---------- Student feedback ----------
+
+// Which categories are currently open to students. Any admin can read this; only the main admin
+// can change it (the setting is global, shared by every admin's students).
+router.get('/feedback/settings', asyncHandler(async (req, res) => {
+  res.json(await getFeedbackSettings());
+}));
+
+router.put('/feedback/settings', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const update = {};
+  FEEDBACK_CATEGORIES.forEach((c) => {
+    if (typeof req.body[c] === 'boolean') update[`${c}_enabled`] = req.body[c];
+  });
+  if (Object.keys(update).length) {
+    await FeedbackSettings.updateOne({ key: 'feedback' }, { $set: update }, { upsert: true });
+  }
+  res.json(await getFeedbackSettings());
+}));
+
+// Submitted feedback, newest first. Feedback is anonymous — there is no student name or id in it
+// to show. The main admin sees everything; a sub-admin sees feedback from their own group of
+// students only. Optional ?category=software|theory|practical.
+router.get('/feedback', asyncHandler(async (req, res) => {
+  const filter = {};
+  if (req.query.category) {
+    if (!FEEDBACK_CATEGORIES.includes(req.query.category)) return res.status(400).json({ error: 'Invalid category' });
+    filter.category = req.query.category;
+  }
+  if (!req.isSuperAdmin) filter.managing_admin = req.user.id;
+  const items = await Feedback.find(filter).sort({ created_at: -1 }).limit(2000).lean();
+  res.json(items.map((f) => ({
+    id: f._id.toString(),
+    category: f.category,
+    rating: f.rating,
+    comments: f.comments || '',
+    date: f.created_at ? new Date(f.created_at).toISOString().slice(0, 10) : ''
+  })));
 }));
 
 module.exports = router;

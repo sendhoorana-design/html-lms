@@ -123,6 +123,8 @@
     $('instructionsBtn').addEventListener('click', openInstructionsModal);
     $('instructionsCloseBtn').addEventListener('click', () => { $('instructionsModal').style.display = 'none'; });
     $('practiceBtn').addEventListener('click', openPractice);
+    $('feedbackBtn').addEventListener('click', openFeedback);
+    $('feedbackCloseBtn').addEventListener('click', () => { $('feedbackModal').style.display = 'none'; });
     $('practiceBackBtn').addEventListener('click', () => { showAssignmentList(); });
     $('practiceResetBtn').addEventListener('click', onPracticeReset);
     $('practiceSaveBtn').addEventListener('click', onPracticeSaveAs);
@@ -224,6 +226,7 @@
     $('testResultsPane').style.display = 'none';
     $('assignmentList').style.display = 'block';
 
+    refreshFeedbackButton();
     const assignments = await api('/api/student/assignments');
     lastAssignments = assignments;
     const tbody = document.querySelector('#assignmentsTable tbody');
@@ -360,6 +363,82 @@
     } else {
       startBtn.style.display = 'none';
     }
+  }
+
+
+  // ---------------- Feedback (anonymous) ----------------
+
+  const FEEDBACK_CATEGORIES = [
+    { key: 'software', title: 'HTML LMS Software', hint: 'How easy and reliable is this software to use?' },
+    { key: 'theory', title: 'Theory Class', hint: 'How was the theory class — clarity, pace, usefulness?' },
+    { key: 'practical', title: 'Practical Class', hint: 'How was the practical/lab class — guidance, tasks, time?' }
+  ];
+  let feedbackSettings = { software: false, theory: false, practical: false };
+
+  // The Feedback button only appears if the admin has at least one category switched on.
+  async function refreshFeedbackButton() {
+    try {
+      feedbackSettings = await api('/api/student/feedback/settings');
+    } catch (e) {
+      feedbackSettings = { software: false, theory: false, practical: false };
+    }
+    $('feedbackBtn').style.display = Object.values(feedbackSettings).some(Boolean) ? 'inline-block' : 'none';
+  }
+
+  async function openFeedback() {
+    await refreshFeedbackButton(); // settings may have changed since the page loaded
+    const box = $('feedbackCards');
+    const open = FEEDBACK_CATEGORIES.filter((c) => feedbackSettings[c.key]);
+    if (!open.length) {
+      box.innerHTML = '<p class="muted">Feedback is currently closed.</p>';
+      $('feedbackModal').style.display = 'flex';
+      return;
+    }
+    box.innerHTML = open.map((c) => `
+      <div class="fb-card" data-cat="${c.key}">
+        <strong>${escapeHtml(c.title)}</strong>
+        <div class="muted" style="font-size:12px;">${escapeHtml(c.hint)}</div>
+        <div class="fb-stars" data-rating="0">
+          ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="fb-star" data-n="${n}" title="${n} / 5">${n}</button>`).join('')}
+        </div>
+        <textarea class="fb-comments" rows="3" maxlength="2000" placeholder="Comments (optional)"></textarea>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+          <button type="button" class="fb-submit">Submit</button>
+          <span class="muted fb-status" style="font-size:12px;"></span>
+        </div>
+      </div>`).join('');
+
+    box.querySelectorAll('.fb-card').forEach((card) => {
+      const stars = card.querySelector('.fb-stars');
+      stars.querySelectorAll('.fb-star').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const n = parseInt(btn.dataset.n, 10);
+          stars.dataset.rating = String(n);
+          stars.querySelectorAll('.fb-star').forEach((b) => b.classList.toggle('on', parseInt(b.dataset.n, 10) <= n));
+        });
+      });
+      card.querySelector('.fb-submit').addEventListener('click', async () => {
+        const status = card.querySelector('.fb-status');
+        const rating = parseInt(stars.dataset.rating, 10);
+        if (!rating) { status.textContent = 'Pick a rating from 1 to 5 first.'; return; }
+        const submitBtn = card.querySelector('.fb-submit');
+        submitBtn.disabled = true;
+        try {
+          await api('/api/student/feedback', {
+            method: 'POST',
+            body: JSON.stringify({ category: card.dataset.cat, rating, comments: card.querySelector('.fb-comments').value })
+          });
+          status.textContent = 'Thank you! Your anonymous feedback was sent.';
+          card.querySelector('.fb-comments').value = '';
+          stars.dataset.rating = '0';
+          stars.querySelectorAll('.fb-star').forEach((b) => b.classList.remove('on'));
+        } catch (err) {
+          status.textContent = err.message;
+        }
+        submitBtn.disabled = false;
+      });
+    });
+    $('feedbackModal').style.display = 'flex';
   }
 
   // ---------------- Practice compiler (OneCompiler-style) ----------------

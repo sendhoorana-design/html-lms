@@ -338,3 +338,7 @@ Four MongoDB collections (see `server/models/`):
   toward the score.
 - For production use: put this behind HTTPS, set a strong `JWT_SECRET` in `.env`, and consider rate-limiting
   the login route.
+
+## Anonymous feedback
+
+Students can give 1–5 star ratings and comments for **HTML LMS Software**, **Theory Class** and **Practical Class** (button on the assignment list). Feedback is anonymous: no student identity is stored, only the category, rating, comment, the managing admin's group and the date. The main admin can enable/disable each category in **Admin → Feedback**; all admins can view and export CSV (sub-admins see only their own group).

@@ -6,6 +6,8 @@ const Violation = require('../models/Violation');
 const { authRequired, requireRole } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 const { runChecks } = require('../utils/grader');
+const Feedback = require('../models/Feedback');
+const { getFeedbackSettings, FEEDBACK_CATEGORIES } = require('../utils/feedbackSettings');
 const { sanitizeFiles, combineFiles, filesToArray, filesToObject } = require('../utils/combine');
 
 const router = express.Router();
@@ -239,6 +241,35 @@ router.post('/assignments/:id/violation', asyncHandler(async (req, res) => {
   }
 
   res.json({ ok: true, count, locked });
+}));
+
+// ---------- Feedback ----------
+
+// Which feedback categories the admin currently has open (software / theory / practical).
+router.get('/feedback/settings', asyncHandler(async (req, res) => {
+  res.json(await getFeedbackSettings());
+}));
+
+router.post('/feedback', asyncHandler(async (req, res) => {
+  const { category, comments } = req.body;
+  const rating = parseInt(req.body.rating, 10);
+  if (!FEEDBACK_CATEGORIES.includes(category)) return res.status(400).json({ error: 'Invalid feedback category' });
+  if (Number.isNaN(rating) || rating < 1 || rating > 5) return res.status(400).json({ error: 'Please choose a rating from 1 to 5' });
+  const text = typeof comments === 'string' ? comments.trim() : '';
+  if (text.length > 2000) return res.status(400).json({ error: 'Comments are too long (max 2000 characters)' });
+
+  // Enforced here, not just by hiding the form — a disabled category rejects submissions even if
+  // the endpoint is called directly.
+  const settings = await getFeedbackSettings();
+  if (!settings[category]) return res.status(403).json({ error: 'Feedback for this category is currently closed' });
+
+  // Anonymous: nothing identifying the student is saved. Only their group's managing admin is
+  // kept (so that admin can see their own group's feedback), and the time is cut to the day.
+  const me = await User.findById(req.user.id).select('managing_admin').lean();
+  const day = new Date();
+  day.setUTCHours(0, 0, 0, 0);
+  await Feedback.create({ category, rating, comments: text, managing_admin: me ? me.managing_admin : null, created_at: day });
+  res.status(201).json({ ok: true });
 }));
 
 module.exports = router;

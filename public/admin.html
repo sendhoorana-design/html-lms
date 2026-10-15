@@ -22,6 +22,7 @@
   <button class="tab-btn active" data-tab="monitor">Live Monitor</button>
   <button class="tab-btn" data-tab="students">Students</button>
   <button class="tab-btn" data-tab="exams">Exams</button>
+  <button class="tab-btn" data-tab="feedback">Feedback</button>
   <button class="tab-btn" data-tab="admins" id="adminsTabBtn" style="display:none;">Admin Requests</button>
 </div>
 
@@ -199,6 +200,43 @@
     <table>
       <thead><tr><th>Title</th><th>Time limit</th><th>Proctoring</th><th>Created</th><th></th></tr></thead>
       <tbody id="examsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- FEEDBACK (anonymous student feedback) -->
+  <div id="tab-feedback" class="tab-panel" style="display:none;">
+    <h2>Student feedback</h2>
+    <p class="muted" style="margin-top:0;">Feedback is anonymous — responses carry only a rating, a comment and a date, never a student's name.</p>
+
+    <div class="card" id="feedbackSettingsCard" style="max-width:640px; display:none;">
+      <h3 style="margin-top:0;">Open for feedback</h3>
+      <p class="muted" style="margin-top:0; font-size:13px;">Choose which feedback forms students can see and submit. This applies to all students.</p>
+      <div class="checkbox-row"><input type="checkbox" id="fbEnable_software" /><label for="fbEnable_software" style="margin:0;">HTML LMS Software</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="fbEnable_theory" /><label for="fbEnable_theory" style="margin:0;">Theory Class</label></div>
+      <div class="checkbox-row"><input type="checkbox" id="fbEnable_practical" /><label for="fbEnable_practical" style="margin:0;">Practical Class</label></div>
+      <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+        <button id="fbSettingsSaveBtn">Save</button>
+        <span class="muted" id="fbSettingsStatus" style="font-size:12px;"></span>
+      </div>
+    </div>
+
+    <div id="feedbackSummary" class="mt-16" style="display:flex; gap:12px; flex-wrap:wrap;"></div>
+
+    <div class="flex-between mt-16">
+      <div style="display:flex; gap:10px; align-items:center;">
+        <label style="margin:0;">Category</label>
+        <select id="feedbackCategoryFilter" style="width:200px;">
+          <option value="">All</option>
+          <option value="software">HTML LMS Software</option>
+          <option value="theory">Theory Class</option>
+          <option value="practical">Practical Class</option>
+        </select>
+      </div>
+      <button class="secondary" id="feedbackCsvBtn">Download CSV</button>
+    </div>
+    <table class="mt-16">
+      <thead><tr><th>Date</th><th>Category</th><th>Rating</th><th>Comments</th></tr></thead>
+      <tbody id="feedbackBody"></tbody>
     </table>
   </div>
 

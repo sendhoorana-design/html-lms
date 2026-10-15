@@ -44,6 +44,9 @@
     document.querySelectorAll('.tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
+    $('feedbackCategoryFilter').addEventListener('change', loadFeedback);
+    $('feedbackCsvBtn').addEventListener('click', downloadFeedbackCsv);
+    $('fbSettingsSaveBtn').addEventListener('click', saveFeedbackSettings);
 
     // Main-admin-only UI: creating/importing/removing students, bulk-assigning students to a
     // sub-admin, and the Admin Requests tab. A sub-admin only ever works with the students
@@ -100,8 +103,79 @@
   }
 
   function switchTab(tab) {
+    if (tab === 'feedback') loadFeedback();
     document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tab-panel').forEach((p) => p.style.display = (p.id === `tab-${tab}` ? 'block' : 'none'));
+  }
+
+
+  // ---------------- Feedback (anonymous) ----------------
+
+  const FEEDBACK_LABELS = { software: 'HTML LMS Software', theory: 'Theory Class', practical: 'Practical Class' };
+  let feedbackItems = [];
+
+  async function loadFeedback() {
+    // Switches (main admin only) — everyone else just sees the responses.
+    $('feedbackSettingsCard').style.display = isSuperAdmin ? 'block' : 'none';
+    if (isSuperAdmin) {
+      try {
+        const st = await api('/api/admin/feedback/settings');
+        ['software', 'theory', 'practical'].forEach((c) => { $(`fbEnable_${c}`).checked = !!st[c]; });
+      } catch (e) { /* leave as is */ }
+    }
+
+    // Summary cards are always across all categories; the table respects the category filter.
+    const all = await api('/api/admin/feedback');
+    $('feedbackSummary').innerHTML = ['software', 'theory', 'practical'].map((c) => {
+      const rows = all.filter((f) => f.category === c);
+      const avg = rows.length ? (rows.reduce((sum, f) => sum + f.rating, 0) / rows.length).toFixed(2) : '—';
+      return `<div class="card" style="padding:14px 18px; min-width:170px;">
+        <div class="muted" style="font-size:12px;">${FEEDBACK_LABELS[c]}</div>
+        <div style="font-size:26px; font-weight:700;">${avg}${rows.length ? ' <span class="muted" style="font-size:13px; font-weight:400;">/ 5</span>' : ''}</div>
+        <div class="muted" style="font-size:12px;">${rows.length} response${rows.length === 1 ? '' : 's'}</div>
+      </div>`;
+    }).join('');
+
+    const cat = $('feedbackCategoryFilter').value;
+    feedbackItems = cat ? all.filter((f) => f.category === cat) : all;
+    const tbody = $('feedbackBody');
+    tbody.innerHTML = feedbackItems.length ? '' : '<tr><td colspan="4" class="muted">No feedback yet.</td></tr>';
+    for (const f of feedbackItems) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="muted">${escapeHtml(f.date)}</td>
+        <td>${escapeHtml(FEEDBACK_LABELS[f.category] || f.category)}</td>
+        <td>${'★'.repeat(f.rating)}<span class="muted">${'★'.repeat(5 - f.rating)}</span> <span class="muted">(${f.rating})</span></td>
+        <td style="white-space:pre-wrap;">${escapeHtml(f.comments) || '<span class="muted">—</span>'}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function saveFeedbackSettings() {
+    const body = {};
+    ['software', 'theory', 'practical'].forEach((c) => { body[c] = $(`fbEnable_${c}`).checked; });
+    const status = $('fbSettingsStatus');
+    try {
+      await api('/api/admin/feedback/settings', { method: 'PUT', body: JSON.stringify(body) });
+      status.textContent = 'Saved.';
+    } catch (e) {
+      status.textContent = e.message;
+    }
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  }
+
+  function downloadFeedbackCsv() {
+    const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const lines = ['date,category,rating,comments']
+      .concat(feedbackItems.map((f) => [f.date, FEEDBACK_LABELS[f.category] || f.category, f.rating, f.comments].map(q).join(',')));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'feedback.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   // ---------------- Students ----------------
