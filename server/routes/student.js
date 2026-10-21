@@ -7,6 +7,9 @@ const { authRequired, requireRole } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 const { runChecks } = require('../utils/grader');
 const Feedback = require('../models/Feedback');
+const Challenge = require('../models/Challenge');
+const ChallengeProgress = require('../models/ChallengeProgress');
+const { studentView, checkAnswer } = require('../utils/challenges');
 const { getFeedbackSettings, FEEDBACK_CATEGORIES } = require('../utils/feedbackSettings');
 const { sanitizeFiles, combineFiles, filesToArray, filesToObject } = require('../utils/combine');
 
@@ -33,6 +36,19 @@ router.post('/change-password', asyncHandler(async (req, res) => {
   user.password_hash = bcrypt.hashSync(newPassword, 10);
   user.must_change_password = false;
   await user.save();
+  res.json({ ok: true });
+}));
+
+// Presence ping (every ~30s while the student's page is open). Powers the admin Live Monitor's
+// active / idle / offline lists. Allowed even before a forced password change, since it only
+// records "this student's browser is open".
+//   { active: true }   -> they used the mouse/keyboard/touch recently in a visible tab
+//   { offline: true }  -> sent on logout so they show as offline immediately
+router.post('/presence', asyncHandler(async (req, res) => {
+  const now = new Date();
+  const set = req.body && req.body.offline ? { last_seen_at: null } : { last_seen_at: now };
+  if (!(req.body && req.body.offline) && req.body && req.body.active) set.last_active_at = now;
+  await User.updateOne({ _id: req.user.id }, { $set: set });
   res.json({ ok: true });
 }));
 
@@ -270,6 +286,77 @@ router.post('/feedback', asyncHandler(async (req, res) => {
   day.setUTCHours(0, 0, 0, 0);
   await Feedback.create({ category, rating, comments: text, managing_admin: me ? me.managing_admin : null, created_at: day });
   res.status(201).json({ ok: true });
+}));
+
+
+// ---------- Challenges (quizzes, fill-the-blanks, find-the-bug, ordering) ----------
+
+async function pointsSummary(studentId) {
+  const mine = await ChallengeProgress.find({ student: studentId, completed: true }).select('points').lean();
+  const total_points = mine.reduce((sum, p) => sum + (p.points || 0), 0);
+  // Rank among every student who has earned points (ties share a rank).
+  const board = await ChallengeProgress.aggregate([
+    { $match: { completed: true } },
+    { $group: { _id: '$student', pts: { $sum: '$points' } } }
+  ]);
+  const higher = board.filter((b) => b.pts > total_points).length;
+  return { total_points, completed: mine.length, rank: total_points > 0 ? higher + 1 : null, ranked_students: board.length };
+}
+
+router.get('/challenges', asyncHandler(async (req, res) => {
+  const challenges = await Challenge.find({ active: true }).sort({ order_no: 1, _id: 1 }).lean();
+  const progress = await ChallengeProgress.find({ student: req.user.id }).lean();
+  const byId = new Map(progress.map((p) => [p.challenge.toString(), p]));
+  const items = challenges.map((c) => {
+    const p = byId.get(c._id.toString());
+    return Object.assign(studentView(c), {
+      completed: !!(p && p.completed),
+      attempts: p ? p.attempts : 0,
+      earned: p && p.completed ? p.points : 0
+    });
+  });
+  res.json({ summary: await pointsSummary(req.user.id), challenges: items });
+}));
+
+// One attempt. Retries are unlimited; the points are awarded once, on the first correct answer.
+// The answer key never leaves the server — a wrong attempt only says which blanks / how many
+// lines were right, a right one returns the explanation.
+router.post('/challenges/:id/attempt', asyncHandler(async (req, res) => {
+  const ch = await Challenge.findOne({ _id: req.params.id, active: true }).lean();
+  if (!ch) return res.status(404).json({ error: 'Challenge not found' });
+
+  const { correct, detail } = checkAnswer(ch, req.body ? req.body.answer : undefined);
+
+  const existing = await ChallengeProgress.findOne({ challenge: ch._id, student: req.user.id });
+  const alreadyDone = !!(existing && existing.completed);
+  let awarded = 0;
+
+  if (!existing) {
+    await ChallengeProgress.create({
+      challenge: ch._id, student: req.user.id, attempts: 1,
+      completed: correct, points: correct ? ch.points : 0, completed_at: correct ? new Date() : null
+    });
+    if (correct) awarded = ch.points;
+  } else {
+    existing.attempts += 1;
+    if (correct && !existing.completed) {
+      existing.completed = true;
+      existing.points = ch.points;
+      existing.completed_at = new Date();
+      awarded = ch.points;
+    }
+    await existing.save();
+  }
+
+  const summary = await pointsSummary(req.user.id);
+  res.json({
+    correct,
+    detail,
+    awarded,
+    already_completed: alreadyDone,
+    explanation: correct ? (ch.explanation || '') : '',
+    summary
+  });
 }));
 
 module.exports = router;

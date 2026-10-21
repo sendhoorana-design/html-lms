@@ -11,6 +11,10 @@ const { runChecks } = require('../utils/grader');
 const Feedback = require('../models/Feedback');
 const FeedbackSettings = require('../models/FeedbackSettings');
 const { getFeedbackSettings, FEEDBACK_CATEGORIES } = require('../utils/feedbackSettings');
+const Challenge = require('../models/Challenge');
+const ChallengeProgress = require('../models/ChallengeProgress');
+const { sanitizeChallenge } = require('../utils/challenges');
+const starterChallenges = require('../data/starterChallenges');
 
 const router = express.Router();
 router.use(authRequired, requireRole('admin'));
@@ -691,6 +695,145 @@ router.get('/feedback', asyncHandler(async (req, res) => {
     comments: f.comments || '',
     date: f.created_at ? new Date(f.created_at).toISOString().slice(0, 10) : ''
   })));
+}));
+
+
+// ---------- Student presence (Live Monitor: active / idle / offline) ----------
+
+const OFFLINE_AFTER_MS = 90 * 1000; // students ping every ~30s; 3 missed pings = offline
+
+// Every student who has at least one exam assigned ("allotted") with their current presence:
+//   active  - pinged recently and used the page within the idle window
+//   idle    - pinged recently, but no mouse/keyboard/touch activity for `idle` seconds
+//   offline - no ping for 90s (closed the tab / logged out / lost connection)
+// ?idle=<seconds> lets the admin choose the idle window (default 120, clamped 30s..1h).
+router.get('/presence', asyncHandler(async (req, res) => {
+  let idleSec = parseInt(req.query.idle, 10);
+  if (Number.isNaN(idleSec)) idleSec = 120;
+  idleSec = Math.min(3600, Math.max(30, idleSec));
+
+  const assigned = await ExamAssignment.distinct('student');
+  const filter = { role: 'student', _id: { $in: assigned } };
+  if (!req.isSuperAdmin) filter.managing_admin = req.user.id;
+  const students = await User.find(filter).select('username full_name section last_seen_at last_active_at').lean();
+
+  const live = await ExamAssignment.find({ student: { $in: students.map((x) => x._id) }, status: 'in_progress' })
+    .populate('exam', 'title').lean();
+  const examOf = new Map();
+  live.forEach((a) => { if (a.exam) examOf.set(a.student.toString(), a.exam.title); });
+
+  const now = Date.now();
+  const rows = students.map((st) => {
+    const seen = st.last_seen_at ? new Date(st.last_seen_at).getTime() : 0;
+    const act = st.last_active_at ? new Date(st.last_active_at).getTime() : 0;
+    let status = 'offline';
+    if (seen && now - seen <= OFFLINE_AFTER_MS) status = (act && now - act <= idleSec * 1000) ? 'active' : 'idle';
+    return {
+      id: st._id.toString(),
+      username: st.username,
+      full_name: st.full_name,
+      section: st.section || '',
+      status,
+      last_seen_at: st.last_seen_at || null,
+      last_active_at: st.last_active_at || null,
+      exam_title: examOf.get(st._id.toString()) || ''
+    };
+  }).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
+
+  const counts = { active: 0, idle: 0, offline: 0 };
+  rows.forEach((r) => { counts[r.status] += 1; });
+  res.json({ idle_after_seconds: idleSec, counts, students: rows });
+}));
+
+// ---------- Challenges ----------
+
+// Full challenge list including answer keys (admin eyes only), with how many students solved each.
+router.get('/challenges', asyncHandler(async (req, res) => {
+  const list = await Challenge.find({}).sort({ order_no: 1, _id: 1 }).lean();
+  const solved = await ChallengeProgress.aggregate([
+    { $match: { completed: true } },
+    { $group: { _id: '$challenge', n: { $sum: 1 } } }
+  ]);
+  const solvedMap = new Map(solved.map((x) => [x._id.toString(), x.n]));
+  res.json(list.map((c) => ({
+    id: c._id.toString(), title: c.title, topic: c.topic, type: c.type, difficulty: c.difficulty,
+    points: c.points, prompt: c.prompt, code: c.code, data: c.data, explanation: c.explanation,
+    active: c.active !== false, order_no: c.order_no || 0, solved_by: solvedMap.get(c._id.toString()) || 0
+  })));
+}));
+
+router.post('/challenges', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { doc, error } = sanitizeChallenge(req.body);
+  if (error) return res.status(400).json({ error });
+  doc.created_by = req.user.id;
+  const created = await Challenge.create(doc);
+  res.status(201).json({ id: created._id.toString() });
+}));
+
+router.put('/challenges/:id', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { doc, error } = sanitizeChallenge(req.body);
+  if (error) return res.status(400).json({ error });
+  const r = await Challenge.updateOne({ _id: req.params.id }, { $set: doc });
+  if (!r.matchedCount && !r.n) return res.status(404).json({ error: 'Challenge not found' });
+  res.json({ ok: true });
+}));
+
+// Quick on/off without opening the editor.
+router.put('/challenges/:id/active', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const r = await Challenge.updateOne({ _id: req.params.id }, { $set: { active: !!req.body.active } });
+  if (!r.matchedCount && !r.n) return res.status(404).json({ error: 'Challenge not found' });
+  res.json({ ok: true });
+}));
+
+router.delete('/challenges/:id', requireSuperAdmin, asyncHandler(async (req, res) => {
+  await ChallengeProgress.deleteMany({ challenge: req.params.id });
+  await Challenge.deleteOne({ _id: req.params.id });
+  res.json({ ok: true });
+}));
+
+// Loads the built-in lab-manual challenge bank. Existing titles are skipped, so running it twice
+// (or after editing some) never duplicates or overwrites anything.
+router.post('/challenges/seed-starter', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const existing = new Set((await Challenge.find({}).select('title').lean()).map((c) => c.title));
+  const last = await Challenge.findOne({}).sort({ order_no: -1 }).select('order_no').lean();
+  let order = last && last.order_no ? last.order_no : 0;
+  let added = 0;
+  let skipped = 0;
+  for (const raw of starterChallenges) {
+    if (existing.has(raw.title)) { skipped += 1; continue; }
+    const { doc, error } = sanitizeChallenge(raw);
+    if (error) { skipped += 1; continue; }
+    order += 1;
+    doc.order_no = order;
+    doc.created_by = req.user.id;
+    await Challenge.create(doc);
+    added += 1;
+  }
+  res.json({ ok: true, added, skipped });
+}));
+
+// Points per student (only the students this admin may see), highest first.
+router.get('/challenges/points', asyncHandler(async (req, res) => {
+  const filter = { role: 'student' };
+  if (!req.isSuperAdmin) filter.managing_admin = req.user.id;
+  const students = await User.find(filter).select('username full_name section').lean();
+  const ids = students.map((x) => x._id);
+  const totals = await ChallengeProgress.aggregate([
+    { $match: { student: { $in: ids }, completed: true } },
+    { $group: { _id: '$student', pts: { $sum: '$points' }, done: { $sum: 1 }, last: { $max: '$completed_at' } } }
+  ]);
+  const map = new Map(totals.map((t) => [t._id.toString(), t]));
+  const totalChallenges = await Challenge.countDocuments({ active: true });
+  const rows = students.map((st) => {
+    const t = map.get(st._id.toString());
+    return {
+      id: st._id.toString(), username: st.username, full_name: st.full_name, section: st.section || '',
+      points: t ? t.pts : 0, completed: t ? t.done : 0, last_completed_at: t ? t.last : null
+    };
+  }).sort((a, b) => (b.points - a.points) || String(a.full_name).localeCompare(String(b.full_name)));
+  let rank = 0; let prev = null;
+  rows.forEach((r, i) => { if (r.points !== prev) { rank = i + 1; prev = r.points; } r.rank = r.points > 0 ? rank : null; });
+  res.json({ total_challenges: totalChallenges, students: rows });
 }));
 
 module.exports = router;

@@ -46,6 +46,7 @@
     });
     $('feedbackCategoryFilter').addEventListener('change', loadFeedback);
     $('feedbackCsvBtn').addEventListener('click', downloadFeedbackCsv);
+    wireChallengesAdmin();
     $('fbSettingsSaveBtn').addEventListener('click', saveFeedbackSettings);
 
     // Main-admin-only UI: creating/importing/removing students, bulk-assigning students to a
@@ -92,8 +93,9 @@
     // Admins list is needed to render student "Managed by" names and the admin dropdown, so
     // load it before the students table (super admin only — a sub-admin can't call this route).
     if (isSuperAdmin) await loadAdmins();
-    await Promise.all([loadStudents(), loadExams(), loadMonitor()]);
+    await Promise.all([loadStudents(), loadExams(), loadMonitor(), loadPresence()]);
     setInterval(loadMonitor, 10000);
+    setInterval(loadPresence, 10000);
   }
 
   function flashMonitorTab() {
@@ -104,10 +106,214 @@
 
   function switchTab(tab) {
     if (tab === 'feedback') loadFeedback();
+    if (tab === 'challenges') loadChallengesAdmin();
     document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tab-panel').forEach((p) => p.style.display = (p.id === `tab-${tab}` ? 'block' : 'none'));
   }
 
+
+  // ---------------- Student presence (Live Monitor) ----------------
+
+  function savedIdleSeconds() {
+    const v = parseInt(localStorage.getItem('lms_idle_after') || '120', 10);
+    return [60, 120, 300, 600, 900].includes(v) ? v : 120;
+  }
+
+  function agoText(iso) {
+    if (!iso) return 'never';
+    const sec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+    if (sec < 60) return `${sec}s ago`;
+    if (sec < 3600) return `${Math.round(sec / 60)} min ago`;
+    if (sec < 86400) return `${Math.round(sec / 3600)} h ago`;
+    return `${Math.round(sec / 86400)} d ago`;
+  }
+
+  async function loadPresence() {
+    let data;
+    try { data = await api(`/api/admin/presence?idle=${savedIdleSeconds()}`); } catch (e) { return; }
+    const groups = { offline: [], idle: [], active: [] };
+    data.students.forEach((st) => groups[st.status].push(st));
+    $('presenceSummary').innerHTML =
+      `<span class="presence-chip">🟢 Active ${data.counts.active}</span>` +
+      `<span class="presence-chip">🟡 Idle ${data.counts.idle}</span>` +
+      `<span class="presence-chip">🔴 Offline ${data.counts.offline}</span>` +
+      `<span class="muted" style="align-self:center; font-size:12px;">${data.students.length} student${data.students.length === 1 ? '' : 's'} with an assigned exam</span>`;
+    const render = (id, nId, list, field) => {
+      $(nId).textContent = `(${list.length})`;
+      $(id).innerHTML = list.length ? list.map((st) => `
+        <div class="presence-row">
+          <span><strong>${escapeHtml(st.full_name || st.username)}</strong>${st.section ? ` <span class="muted">· ${escapeHtml(st.section)}</span>` : ''}${st.exam_title ? `<br><span class="muted" style="font-size:12px;">in exam: ${escapeHtml(st.exam_title)}</span>` : ''}</span>
+          <span class="muted" style="white-space:nowrap; font-size:12px;">${field === 'seen' ? 'last seen ' + agoText(st.last_seen_at) : 'active ' + agoText(st.last_active_at)}</span>
+        </div>`).join('') : '<span class="muted">Nobody.</span>';
+    };
+    render('presenceOffline', 'presenceOfflineN', groups.offline, 'seen');
+    render('presenceIdle', 'presenceIdleN', groups.idle, 'active');
+    render('presenceActive', 'presenceActiveN', groups.active, 'active');
+  }
+
+  // ---------------- Challenges ----------------
+
+  const CH_TYPE_LABEL = { quiz: 'Quiz', fill: 'Fill the blanks', fix: 'Find the bug', order: 'Order the code' };
+  let adminChallenges = [];
+  let pointsRows = [];
+
+  async function loadChallengesAdmin() {
+    $('challengeAdminBtns').style.display = isSuperAdmin ? 'flex' : 'none';
+    adminChallenges = await api('/api/admin/challenges');
+    renderChallengesAdmin();
+    loadPoints();
+  }
+
+  function renderChallengesAdmin() {
+    const t = $('chAdminTypeFilter').value;
+    const list = adminChallenges.filter((c) => !t || c.type === t);
+    $('chAdminCount').textContent = `${list.length} of ${adminChallenges.length} challenges`;
+    $('chAdminBody').innerHTML = list.length ? list.map((c) => `
+      <tr>
+        <td>${escapeHtml(c.title)}</td>
+        <td class="muted">${escapeHtml(c.topic)}</td>
+        <td>${CH_TYPE_LABEL[c.type] || c.type}</td>
+        <td>${escapeHtml(c.difficulty)}</td>
+        <td><strong>${c.points}</strong></td>
+        <td>${c.solved_by}</td>
+        <td>${isSuperAdmin ? `<input type="checkbox" class="ch-active" data-id="${c.id}" ${c.active ? 'checked' : ''} />` : (c.active ? 'Yes' : 'No')}</td>
+        <td>${isSuperAdmin ? `<button class="secondary ch-edit" data-id="${c.id}">Edit</button> <button class="secondary ch-del" data-id="${c.id}">Delete</button>` : ''}</td>
+      </tr>`).join('') : '<tr><td colspan="8" class="muted">No challenges yet.' + (isSuperAdmin ? ' Click "Load starter challenges" to add the lab-manual set.' : '') + '</td></tr>';
+    document.querySelectorAll('#chAdminBody .ch-active').forEach((cb) => cb.addEventListener('change', async () => {
+      await api(`/api/admin/challenges/${cb.dataset.id}/active`, { method: 'PUT', body: JSON.stringify({ active: cb.checked }) });
+      const c = adminChallenges.find((x) => x.id === cb.dataset.id); if (c) c.active = cb.checked;
+    }));
+    document.querySelectorAll('#chAdminBody .ch-edit').forEach((b) => b.addEventListener('click', () => openChallengeEditor(b.dataset.id)));
+    document.querySelectorAll('#chAdminBody .ch-del').forEach((b) => b.addEventListener('click', async () => {
+      const c = adminChallenges.find((x) => x.id === b.dataset.id);
+      if (!window.confirm(`Delete "${c ? c.title : 'this challenge'}"? Students' points for it are removed too.`)) return;
+      await api(`/api/admin/challenges/${b.dataset.id}`, { method: 'DELETE' });
+      await loadChallengesAdmin();
+    }));
+  }
+
+  function syncEditorType() {
+    const type = $('ce_type').value;
+    $('ce_quizWrap').style.display = type === 'quiz' ? 'block' : 'none';
+    $('ce_fillWrap').style.display = type === 'fill' ? 'block' : 'none';
+    $('ce_fixWrap').style.display = type === 'fix' ? 'block' : 'none';
+    $('ce_orderWrap').style.display = type === 'order' ? 'block' : 'none';
+    $('ce_codeWrap').style.display = type === 'order' ? 'none' : 'block';
+    $('ce_codeLabel').textContent = type === 'fill' ? 'Code – write ___ (three underscores) wherever a blank should be'
+      : type === 'fix' ? 'Code that contains the bug' : 'Code to show with the question (optional)';
+  }
+
+  function openChallengeEditor(id) {
+    const c = id ? adminChallenges.find((x) => x.id === id) : null;
+    $('chEditorTitle').textContent = c ? 'Edit challenge' : 'New challenge';
+    $('ce_id').value = c ? c.id : '';
+    $('ce_title').value = c ? c.title : '';
+    $('ce_type').value = c ? c.type : 'quiz';
+    $('ce_difficulty').value = c ? c.difficulty : 'easy';
+    $('ce_points').value = c ? c.points : 10;
+    $('ce_topic').value = c ? c.topic : '';
+    $('ce_prompt').value = c ? c.prompt : '';
+    $('ce_code').value = c ? c.code : '';
+    const d = (c && c.data) || {};
+    $('ce_options').value = (d.options || []).join('\n');
+    $('ce_correct').value = (d.correct || 0) + 1;
+    $('ce_answers').value = (d.answers || []).map((a) => a.join('|')).join('\n');
+    $('ce_case').checked = !!d.case_sensitive;
+    $('ce_bug').value = (d.bug_lines || []).join(', ');
+    $('ce_lines').value = (d.lines || []).join('\n');
+    $('ce_hint').value = d.hint || '';
+    $('ce_explanation').value = c ? c.explanation : '';
+    $('ce_active').checked = c ? c.active : true;
+    $('ceStatus').textContent = '';
+    syncEditorType();
+    $('chEditor').style.display = 'block';
+    $('chEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function readChallengeEditor() {
+    const type = $('ce_type').value;
+    const data = { hint: $('ce_hint').value };
+    if (type === 'quiz') {
+      data.options = $('ce_options').value.split('\n').map((x) => x.trim()).filter(Boolean);
+      data.correct = (parseInt($('ce_correct').value, 10) || 1) - 1;
+    } else if (type === 'fill') {
+      data.answers = $('ce_answers').value.split('\n').map((l) => l.split('|').map((x) => x.trim()).filter(Boolean)).filter((a) => a.length);
+      data.case_sensitive = $('ce_case').checked;
+    } else if (type === 'fix') {
+      data.bug_lines = $('ce_bug').value.split(',').map((x) => parseInt(x, 10)).filter((n) => !Number.isNaN(n));
+    } else if (type === 'order') {
+      data.lines = $('ce_lines').value.split('\n').filter((l) => l.trim());
+    }
+    return {
+      title: $('ce_title').value, type, difficulty: $('ce_difficulty').value, points: parseInt($('ce_points').value, 10),
+      topic: $('ce_topic').value, prompt: $('ce_prompt').value,
+      code: type === 'order' ? '' : $('ce_code').value, explanation: $('ce_explanation').value,
+      active: $('ce_active').checked, data
+    };
+  }
+
+  async function saveChallengeEditor() {
+    const id = $('ce_id').value;
+    $('ceStatus').textContent = 'Saving…';
+    try {
+      await api(id ? `/api/admin/challenges/${id}` : '/api/admin/challenges', { method: id ? 'PUT' : 'POST', body: JSON.stringify(readChallengeEditor()) });
+      $('chEditor').style.display = 'none';
+      await loadChallengesAdmin();
+    } catch (e) {
+      $('ceStatus').textContent = e.message || 'Could not save';
+    }
+  }
+
+  async function seedStarterChallenges() {
+    $('chSeedStatus').textContent = 'Loading…';
+    try {
+      const r = await api('/api/admin/challenges/seed-starter', { method: 'POST' });
+      $('chSeedStatus').textContent = `Added ${r.added} challenge${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already existed)` : ''}.`;
+      await loadChallengesAdmin();
+    } catch (e) {
+      $('chSeedStatus').textContent = e.message || 'Could not load starter challenges';
+    }
+  }
+
+  async function loadPoints() {
+    let data;
+    try { data = await api('/api/admin/challenges/points'); } catch (e) { return; }
+    pointsRows = data.students;
+    const withPts = pointsRows.filter((r) => r.points > 0).length;
+    $('pointsSummary').textContent = `${withPts} of ${pointsRows.length} students have earned points · ${data.total_challenges} active challenges`;
+    $('pointsBody').innerHTML = pointsRows.length ? pointsRows.map((r) => `
+      <tr>
+        <td>${r.rank ? '#' + r.rank : '—'}</td>
+        <td>${escapeHtml(r.full_name)}</td>
+        <td class="muted">${escapeHtml(r.username)}</td>
+        <td>${escapeHtml(r.section)}</td>
+        <td><strong>${r.points}</strong></td>
+        <td>${r.completed} / ${data.total_challenges}</td>
+      </tr>`).join('') : '<tr><td colspan="6" class="muted">No students yet.</td></tr>';
+  }
+
+  function downloadPointsCsv() {
+    const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const lines = ['rank,name,username,class,points,challenges_solved']
+      .concat(pointsRows.map((r) => [r.rank || '', r.full_name, r.username, r.section, r.points, r.completed].map(q).join(',')));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'challenge-points.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function wireChallengesAdmin() {
+    $('chSeedBtn').addEventListener('click', seedStarterChallenges);
+    $('chNewBtn').addEventListener('click', () => openChallengeEditor(null));
+    $('ce_type').addEventListener('change', syncEditorType);
+    $('ceSaveBtn').addEventListener('click', saveChallengeEditor);
+    $('ceCancelBtn').addEventListener('click', () => { $('chEditor').style.display = 'none'; });
+    $('chAdminTypeFilter').addEventListener('change', renderChallengesAdmin);
+    $('pointsCsvBtn').addEventListener('click', downloadPointsCsv);
+    $('idleAfterSelect').value = String(savedIdleSeconds());
+    $('idleAfterSelect').addEventListener('change', () => { localStorage.setItem('lms_idle_after', $('idleAfterSelect').value); loadPresence(); });
+  }
 
   // ---------------- Feedback (anonymous) ----------------
 

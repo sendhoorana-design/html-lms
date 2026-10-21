@@ -28,6 +28,12 @@ const userSchema = new mongoose.Schema({
   // super admin can see/manage it until a super admin hands it to a sub-admin).
   managing_admin: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 
+  // ---- Student presence (powers Live Monitor's active / idle / offline lists) ----
+  // last_seen_at: last time the student's browser pinged while logged in (null = logged out).
+  // last_active_at: last time that ping reported real activity (mouse/keys/touch in a visible tab).
+  last_seen_at: { type: Date, default: null },
+  last_active_at: { type: Date, default: null },
+
   created_at: { type: Date, default: Date.now }
 });
 

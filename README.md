@@ -342,3 +342,13 @@ Four MongoDB collections (see `server/models/`):
 ## Anonymous feedback
 
 Students can give 1–5 star ratings and comments for **HTML LMS Software**, **Theory Class** and **Practical Class** (button on the assignment list). Feedback is anonymous: no student identity is stored, only the category, rating, comment, the managing admin's group and the date. The main admin can enable/disable each category in **Admin → Feedback**; all admins can view and export CSV (sub-admins see only their own group).
+
+## Challenges and student points
+
+Students get a **Challenges** tab next to their exams: quizzes, fill-in-the-blanks, find-the-bug and put-the-lines-in-order puzzles built from the lab manual. Solving a challenge awards its fixed points once (unlimited retries); students see their points, progress and rank. The answer key never leaves the server.
+
+The main admin opens **Admin → Challenges** and clicks **Load starter challenges** (82 lab-manual challenges; safe to click again – existing titles are skipped), or adds/edits/hides/deletes challenges. The same tab shows every student's points (with CSV download); sub-admins see only their own students.
+
+## Live Monitor presence
+
+Under the Live Monitor table, every student who has an exam assigned is listed as **Active**, **Idle** (no mouse/keyboard/touch for N minutes – choose 1/2/5/10/15 min) or **Offline** (no ping for ~90 s or logged out).

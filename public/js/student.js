@@ -114,6 +114,7 @@
 
     $('whoami').textContent = `${me.full_name} (${me.username})`;
     $('logoutBtn').addEventListener('click', async () => {
+      try { await api('/api/student/presence', { method: 'POST', body: JSON.stringify({ offline: true }) }); } catch (e) { /* ignore */ }
       await api('/api/auth/logout', { method: 'POST' });
       window.location.href = '/login.html';
     });
@@ -125,6 +126,8 @@
     $('practiceBtn').addEventListener('click', openPractice);
     $('feedbackBtn').addEventListener('click', openFeedback);
     $('feedbackCloseBtn').addEventListener('click', () => { $('feedbackModal').style.display = 'none'; });
+    wireChallenges();
+    startPresence();
     $('practiceBackBtn').addEventListener('click', () => { showAssignmentList(); });
     $('practiceResetBtn').addEventListener('click', onPracticeReset);
     $('practiceSaveBtn').addEventListener('click', onPracticeSaveAs);
@@ -227,6 +230,7 @@
     $('assignmentList').style.display = 'block';
 
     refreshFeedbackButton();
+    loadChallenges();
     const assignments = await api('/api/student/assignments');
     lastAssignments = assignments;
     const tbody = document.querySelector('#assignmentsTable tbody');
@@ -1113,6 +1117,375 @@
     window.removeEventListener('beforeunload', onBeforeUnload);
     clearInterval(heartbeatTimer);
     clearInterval(timerInterval);
+  }
+
+  // ---------------- Presence (powers the admin Live Monitor's active / idle / offline lists) ----------------
+
+  let lastActivityAt = Date.now();
+  let presenceTimer = null;
+
+  function startPresence() {
+    const mark = () => { lastActivityAt = Date.now(); };
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click', 'wheel'].forEach((ev) => {
+      window.addEventListener(ev, mark, { passive: true, capture: true });
+    });
+    const ping = () => {
+      const visible = document.visibilityState !== 'hidden';
+      const active = visible && (Date.now() - lastActivityAt) < 35000;
+      api('/api/student/presence', { method: 'POST', body: JSON.stringify({ active }) }).catch(() => {});
+    };
+    ping();
+    clearInterval(presenceTimer);
+    presenceTimer = setInterval(ping, 30000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') ping(); });
+  }
+
+  function sendOffline() {
+    try {
+      const blob = new Blob([JSON.stringify({ offline: true })], { type: 'application/json' });
+      if (navigator.sendBeacon) navigator.sendBeacon('/api/student/presence', blob);
+    } catch (e) { /* best-effort */ }
+  }
+
+  // ---------------- Challenges ----------------
+
+  const CH_TYPE_LABEL = { quiz: 'Quiz', fill: 'Fill the blanks', fix: 'Find the bug', order: 'Order the code' };
+  let chItems = [];
+  let chSummary = { total_points: 0, completed: 0, rank: null, ranked_students: 0 };
+  let chCurrent = null;       // the challenge open in the player
+  let chShownList = [];       // filtered list at the time of opening (for "Next")
+  let chPlayerState = null;   // type-specific selection state
+
+  function showTab(which) {
+    const challenges = which === 'challenges';
+    $('examsPane').style.display = challenges ? 'none' : 'block';
+    $('challengesPane').style.display = challenges ? 'block' : 'none';
+    $('tabExamsBtn').classList.toggle('active', !challenges);
+    $('tabChallengesBtn').classList.toggle('active', challenges);
+    if (challenges) loadChallenges();
+  }
+
+  function updatePointsChip() {
+    $('ptsChip').style.display = 'flex';
+    $('ptsChipValue').textContent = String(chSummary.total_points || 0);
+    $('ptsChipRank').textContent = chSummary.rank ? `· rank #${chSummary.rank} of ${chSummary.ranked_students}` : '';
+    const total = chItems.length;
+    $('chProgressBar').style.width = total ? `${Math.round((chSummary.completed / total) * 100)}%` : '0%';
+  }
+
+  async function loadChallenges() {
+    try {
+      const data = await api('/api/student/challenges');
+      chItems = data.challenges || [];
+      chSummary = data.summary || chSummary;
+    } catch (e) { return; }
+    const units = Array.from(new Set(chItems.map((c) => (c.topic || '').split(' (')[0]).filter(Boolean)));
+    const sel = $('chFilterUnit');
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">All units</option>' + units.map((u) => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('');
+    sel.value = units.includes(keep) ? keep : '';
+    updatePointsChip();
+    renderChallengeGrid();
+  }
+
+  function filteredChallenges() {
+    const t = $('chFilterType').value;
+    const u = $('chFilterUnit').value;
+    const st = $('chFilterStatus').value;
+    return chItems.filter((c) =>
+      (!t || c.type === t) &&
+      (!u || (c.topic || '').startsWith(u)) &&
+      (!st || (st === 'done' ? c.completed : !c.completed)));
+  }
+
+  function renderChallengeGrid() {
+    const list = filteredChallenges();
+    $('chEmpty').style.display = list.length ? 'none' : 'block';
+    $('chGrid').innerHTML = list.map((c) => `
+      <div class="ch-card ${c.completed ? 'done' : ''}" data-id="${c.id}">
+        ${c.completed ? '<span class="ch-done-mark">✓</span>' : ''}
+        <div class="ch-title">${escapeHtml(c.title)}</div>
+        <div class="muted" style="font-size:12px;">${escapeHtml(c.topic)}</div>
+        <div class="ch-meta">
+          <span class="ch-tag ${c.type}">${CH_TYPE_LABEL[c.type] || c.type}</span>
+          <span class="ch-tag ${c.difficulty}">${c.difficulty}</span>
+          <span class="ch-pts">${c.completed ? '+' + c.earned : c.points} pts</span>
+        </div>
+      </div>`).join('');
+    $('chGrid').querySelectorAll('.ch-card').forEach((card) => {
+      card.addEventListener('click', () => openChallenge(card.dataset.id));
+    });
+  }
+
+  function chMetaHtml(c) {
+    return `<span class="ch-tag ${c.type}">${CH_TYPE_LABEL[c.type] || c.type}</span>
+      <span class="ch-tag ${c.difficulty}">${c.difficulty}</span>
+      <span class="ch-pts" style="margin-left:6px;">${c.points} pts</span>
+      <span class="muted" style="font-size:12px; margin-left:6px;">${escapeHtml(c.topic)}</span>`;
+  }
+
+  function openChallenge(id) {
+    const c = chItems.find((x) => x.id === id);
+    if (!c) return;
+    chCurrent = c;
+    chShownList = filteredChallenges();
+    chPlayerState = {};
+    $('chMeta').innerHTML = chMetaHtml(c);
+    $('chTitle').textContent = c.title;
+    $('chPrompt').textContent = c.prompt || '';
+    $('chFeedback').className = 'ch-feedback';
+    $('chFeedback').innerHTML = '';
+    $('chHintText').textContent = '';
+    $('chHintBtn').style.display = c.hint ? 'inline-block' : 'none';
+    $('chHintBtn').textContent = 'Show hint';
+    $('chNextBtn').style.display = 'none';
+    $('chCheckBtn').style.display = 'inline-block';
+    $('chCheckBtn').disabled = false;
+    const body = $('chBody');
+    if (c.type === 'quiz') renderQuiz(body, c);
+    else if (c.type === 'fill') renderFill(body, c);
+    else if (c.type === 'fix') renderFix(body, c);
+    else if (c.type === 'order') renderOrder(body, c);
+    $('challengeModal').style.display = 'flex';
+  }
+
+  function closeChallenge() {
+    $('challengeModal').style.display = 'none';
+    chCurrent = null;
+  }
+
+  function renderQuiz(body, c) {
+    body.innerHTML = (c.code ? `<pre class="ch-code">${escapeHtml(c.code)}</pre>` : '') +
+      c.options.map((o, i) => `<button type="button" class="ch-opt" data-i="${i}">${escapeHtml(o)}</button>`).join('');
+    body.querySelectorAll('.ch-opt').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if ($('chCheckBtn').disabled) return;
+        body.querySelectorAll('.ch-opt').forEach((b) => b.classList.remove('sel', 'wrong'));
+        btn.classList.add('sel');
+        chPlayerState.answer = parseInt(btn.dataset.i, 10);
+      });
+    });
+  }
+
+  function renderFill(body, c) {
+    const parts = c.code.split('___');
+    let html = '';
+    parts.forEach((p, i) => {
+      html += escapeHtml(p);
+      if (i < parts.length - 1) html += `<input class="ch-blank" data-i="${i}" autocomplete="off" spellcheck="false" size="10" placeholder="…">`;
+    });
+    body.innerHTML = `<pre class="ch-code">${html}</pre>`;
+    body.querySelectorAll('.ch-blank').forEach((inp) => {
+      inp.addEventListener('input', () => { inp.classList.remove('wrong', 'right'); inp.size = Math.max(10, inp.value.length + 2); });
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitChallenge(); } });
+    });
+    const first = body.querySelector('.ch-blank'); if (first) setTimeout(() => first.focus(), 50);
+  }
+
+  function renderFix(body, c) {
+    const lines = c.code.split('\n');
+    body.innerHTML = '<div class="ch-code" style="white-space:normal;">' + lines.map((l, i) =>
+      `<div class="ch-line" data-n="${i + 1}"><span class="n">${i + 1}</span><span style="white-space:pre;">${escapeHtml(l) || ' '}</span></div>`).join('') + '</div>';
+    body.querySelectorAll('.ch-line').forEach((row) => {
+      row.addEventListener('click', () => {
+        if ($('chCheckBtn').disabled) return;
+        body.querySelectorAll('.ch-line').forEach((r) => r.classList.remove('sel', 'wrong'));
+        row.classList.add('sel');
+        chPlayerState.answer = parseInt(row.dataset.n, 10);
+      });
+    });
+    $('chCheckBtn').textContent = 'This is the buggy line';
+  }
+
+  function renderOrder(body, c) {
+    body.innerHTML = '<div id="chOrderList" class="ch-code" style="white-space:normal;"></div><div class="muted" style="font-size:12px;">Drag the lines (or use the arrows) into the right order.</div>';
+    const list = $('chOrderList');
+    c.lines.forEach((l) => list.appendChild(orderItem(l)));
+    let dragged = null;
+    list.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const over = e.target.closest('.ch-item');
+      list.querySelectorAll('.ch-item').forEach((i) => i.classList.remove('over'));
+      if (over && over !== dragged) over.classList.add('over');
+    });
+    list.addEventListener('dragstart', (e) => { dragged = e.target.closest('.ch-item'); if (dragged) { dragged.classList.add('drag'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', ''); } catch (x) { /* old browsers */ } } });
+    list.addEventListener('dragend', () => { if (dragged) dragged.classList.remove('drag'); list.querySelectorAll('.ch-item').forEach((i) => i.classList.remove('over')); dragged = null; });
+    list.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const over = e.target.closest('.ch-item');
+      if (dragged && over && over !== dragged) {
+        const items = Array.from(list.children);
+        if (items.indexOf(dragged) < items.indexOf(over)) over.after(dragged); else over.before(dragged);
+      }
+    });
+    $('chCheckBtn').textContent = 'Check order';
+  }
+
+  function orderItem(text) {
+    const el = document.createElement('div');
+    el.className = 'ch-item';
+    el.draggable = true;
+    el.dataset.text = text;
+    el.innerHTML = `<span class="grip">⠿</span><span class="txt">${escapeHtml(text)}</span><button type="button" class="secondary up" title="Move up">↑</button><button type="button" class="secondary down" title="Move down">↓</button>`;
+    el.querySelector('.up').addEventListener('click', () => { const p = el.previousElementSibling; if (p) p.before(el); });
+    el.querySelector('.down').addEventListener('click', () => { const n = el.nextElementSibling; if (n) n.after(el); });
+    return el;
+  }
+
+  function collectAnswer(c) {
+    if (c.type === 'quiz' || c.type === 'fix') return chPlayerState.answer;
+    if (c.type === 'fill') return Array.from($('chBody').querySelectorAll('.ch-blank')).map((i) => i.value);
+    if (c.type === 'order') return Array.from($('chOrderList').children).map((i) => i.dataset.text);
+    return null;
+  }
+
+  async function submitChallenge() {
+    const c = chCurrent;
+    if (!c || $('chCheckBtn').disabled) return;
+    const answer = collectAnswer(c);
+    const fb = $('chFeedback');
+    if ((c.type === 'quiz' || c.type === 'fix') && (answer === undefined || answer === null)) {
+      fb.className = 'ch-feedback bad';
+      fb.textContent = c.type === 'quiz' ? 'Pick an option first.' : 'Click the line you think has the bug first.';
+      return;
+    }
+    if (c.type === 'fill' && answer.every((a) => !String(a).trim())) {
+      fb.className = 'ch-feedback bad';
+      fb.textContent = 'Type something into the blank first.';
+      return;
+    }
+    $('chCheckBtn').disabled = true;
+    let res;
+    try {
+      res = await api(`/api/student/challenges/${c.id}/attempt`, { method: 'POST', body: JSON.stringify({ answer }) });
+    } catch (e) {
+      fb.className = 'ch-feedback bad';
+      fb.textContent = e.message || 'Could not check your answer.';
+      $('chCheckBtn').disabled = false;
+      return;
+    }
+    c.attempts = (c.attempts || 0) + 1;
+    if (res.summary) { chSummary = res.summary; }
+    if (res.correct) onChallengeSolved(c, res); else onChallengeWrong(c, res);
+  }
+
+  function onChallengeWrong(c, res) {
+    const box = $('challengeBox');
+    box.classList.remove('ch-shake'); void box.offsetWidth; box.classList.add('ch-shake');
+    const fb = $('chFeedback');
+    let msg = 'Not quite – try again!';
+    if (c.type === 'fill' && res.detail && res.detail.blanks) {
+      const inputs = $('chBody').querySelectorAll('.ch-blank');
+      res.detail.blanks.forEach((ok, i) => { if (inputs[i]) inputs[i].classList.add(ok ? 'right' : 'wrong'); });
+      const right = res.detail.blanks.filter(Boolean).length;
+      msg = `${right} of ${res.detail.blanks.length} blank${res.detail.blanks.length === 1 ? '' : 's'} correct. Fix the red one${res.detail.blanks.length - right === 1 ? '' : 's'} and check again.`;
+    } else if (c.type === 'quiz') {
+      const sel = $('chBody').querySelector('.ch-opt.sel');
+      if (sel) { sel.classList.remove('sel'); sel.classList.add('wrong'); }
+      chPlayerState.answer = undefined;
+    } else if (c.type === 'fix') {
+      const sel = $('chBody').querySelector('.ch-line.sel');
+      if (sel) { sel.classList.remove('sel'); sel.classList.add('wrong'); }
+      chPlayerState.answer = undefined;
+      msg = 'That line is fine. Look again!';
+    } else if (c.type === 'order' && res.detail) {
+      msg = `${res.detail.placed} of ${res.detail.total} lines are in the right place. Keep rearranging!`;
+      Array.from($('chOrderList').children).forEach((el) => el.classList.remove('right', 'wrong'));
+    }
+    fb.className = 'ch-feedback bad';
+    fb.textContent = msg;
+    $('chCheckBtn').disabled = false;
+  }
+
+  function onChallengeSolved(c, res) {
+    const first = res.awarded > 0;
+    if (first) { c.completed = true; c.earned = res.awarded; }
+    const fb = $('chFeedback');
+    fb.className = 'ch-feedback ok';
+    fb.innerHTML = (first
+      ? `<div class="ch-earned ch-pop">+<span id="chEarnedNum">0</span> points!</div>`
+      : `<div class="ch-pop"><strong>Correct!</strong> <span class="muted">You already earned the points for this one.</span></div>`) +
+      (res.explanation ? `<div style="margin-top:6px;">${escapeHtml(res.explanation)}</div>` : '') +
+      `<div class="muted" style="margin-top:6px; font-size:12px;">Total: ${chSummary.total_points} pts · ${chSummary.completed} challenge${chSummary.completed === 1 ? '' : 's'} solved${chSummary.rank ? ' · rank #' + chSummary.rank : ''}</div>`;
+    if (first) countUp($('chEarnedNum'), res.awarded);
+    // mark the right answer visually
+    const body = $('chBody');
+    if (c.type === 'quiz') { const sel = body.querySelector('.ch-opt.sel'); if (sel) { sel.classList.remove('sel'); sel.classList.add('right'); } }
+    if (c.type === 'fix') { const sel = body.querySelector('.ch-line.sel'); if (sel) { sel.classList.remove('sel'); sel.classList.add('right'); } }
+    if (c.type === 'fill') body.querySelectorAll('.ch-blank').forEach((i) => { i.classList.remove('wrong'); i.classList.add('right'); i.readOnly = true; });
+    if (c.type === 'order') Array.from($('chOrderList').children).forEach((el) => { el.classList.add('right'); el.draggable = false; el.querySelectorAll('button').forEach((b) => { b.disabled = true; }); });
+    $('chCheckBtn').style.display = 'none';
+    const next = nextChallenge(c);
+    $('chNextBtn').style.display = next ? 'inline-block' : 'none';
+    $('chNextBtn').dataset.next = next ? next.id : '';
+    updatePointsChip();
+    renderChallengeGrid();
+    launchConfetti(first ? 140 : 40);
+  }
+
+  function nextChallenge(c) {
+    const list = chShownList.length ? chShownList : chItems;
+    const i = list.findIndex((x) => x.id === c.id);
+    for (let k = 1; k <= list.length; k++) {
+      const cand = list[(i + k) % list.length];
+      if (cand && !cand.completed && cand.id !== c.id) return cand;
+    }
+    return null;
+  }
+
+  function countUp(el, target) {
+    if (!el) return;
+    const start = performance.now();
+    const dur = 700;
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / dur);
+      el.textContent = String(Math.round(target * t));
+      if (t < 1) requestAnimationFrame(step); else el.textContent = String(target);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function launchConfetti(count) {
+    const cv = $('confettiCanvas');
+    if (!cv || !cv.getContext) return;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    cv.style.display = 'block';
+    cv.width = window.innerWidth; cv.height = window.innerHeight;
+    const colors = ['#5b7cfa', '#34d399', '#fbbf24', '#f87171', '#c084fc', '#38bdf8'];
+    const bits = Array.from({ length: count }, () => ({
+      x: cv.width / 2 + (Math.random() - 0.5) * 200, y: cv.height * 0.35,
+      vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 12 - 4,
+      s: 5 + Math.random() * 6, r: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.4,
+      c: colors[Math.floor(Math.random() * colors.length)], life: 0
+    }));
+    let frames = 0;
+    const tick = () => {
+      frames += 1;
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      bits.forEach((b) => {
+        b.vy += 0.35; b.x += b.vx; b.y += b.vy; b.r += b.vr;
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.r); ctx.fillStyle = b.c;
+        ctx.globalAlpha = Math.max(0, 1 - frames / 110);
+        ctx.fillRect(-b.s / 2, -b.s / 2, b.s, b.s * 0.6); ctx.restore();
+      });
+      if (frames < 110) requestAnimationFrame(tick); else { ctx.clearRect(0, 0, cv.width, cv.height); cv.style.display = 'none'; }
+    };
+    requestAnimationFrame(tick);
+  }
+
+  function wireChallenges() {
+    $('tabExamsBtn').addEventListener('click', () => showTab('exams'));
+    $('tabChallengesBtn').addEventListener('click', () => showTab('challenges'));
+    ['chFilterType', 'chFilterUnit', 'chFilterStatus'].forEach((id) => $(id).addEventListener('change', renderChallengeGrid));
+    $('chCloseBtn').addEventListener('click', closeChallenge);
+    $('chCheckBtn').addEventListener('click', submitChallenge);
+    $('chHintBtn').addEventListener('click', () => {
+      if (chCurrent) { $('chHintText').textContent = '💡 ' + chCurrent.hint; $('chHintBtn').textContent = 'Hint shown'; }
+    });
+    $('chNextBtn').addEventListener('click', () => { if ($('chNextBtn').dataset.next) openChallenge($('chNextBtn').dataset.next); });
+    $('challengeModal').addEventListener('mousedown', (e) => { if (e.target === $('challengeModal')) closeChallenge(); });
+    window.addEventListener('pagehide', sendOffline);
   }
 
   init();

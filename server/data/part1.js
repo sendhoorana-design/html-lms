@@ -1,0 +1,85 @@
+const P = { easy: 10, medium: 15, hard: 20 };
+const base = (type, topic, difficulty, title, extra) => Object.assign({ type, topic, difficulty, title, points: P[difficulty] }, extra);
+const Q = (topic, d, title, prompt, options, correct, explanation, code) =>
+  base('quiz', topic, d, title, { prompt, code: code || '', explanation, data: { options, correct } });
+const F = (topic, d, title, prompt, code, answers, explanation, hint, cs) =>
+  base('fill', topic, d, title, { prompt, code, explanation, data: { answers, hint: hint || '', case_sensitive: !!cs } });
+const X = (topic, d, title, prompt, code, bug, explanation, hint) =>
+  base('fix', topic, d, title, { prompt, code, explanation, data: { bug_lines: [bug], hint: hint || '' } });
+const O = (topic, d, title, prompt, lines, explanation, hint) =>
+  base('order', topic, d, title, { prompt, explanation, data: { lines, hint: hint || '' } });
+const U1 = 'Unit 1 – Web & environment';
+const U2 = 'Unit 2 – HTML5';
+module.exports = { Q, F, X, O, U1, U2 };
+module.exports.list = [
+  Q(U1 + ' (Ex. 1.1)', 'easy', 'Reload on save', 'Which VS Code extension reloads the browser automatically every time you save your HTML file?',
+    ['Prettier', 'Live Server', 'GitLens', 'Debugger for Chrome'], 1, 'Live Server starts a small local server with live reload, so the browser refreshes on every save.'),
+  Q(U1 + ' (Ex. 1.1)', 'easy', 'XAMPP document root', 'In XAMPP, which folder must your website files be placed in so Apache can serve them at http://localhost/?',
+    ['bin', 'htdocs', 'apache', 'tmp'], 1, 'Apache serves files from the htdocs folder (the document root).'),
+  Q(U1 + ' (Ex. 1.2)', 'easy', 'Opening a local file', 'Which URL scheme does the browser use when you double-click an HTML file on your disk?',
+    ['http://', 'https://', 'file://', 'ftp://'], 2, 'file:// reads the file straight from disk – there is no web server involved.'),
+  Q(U1 + ' (Ex. 1.3)', 'easy', 'Apache default port', 'On which port does Apache listen for normal HTTP requests in XAMPP by default?',
+    ['21', '80', '3306', '8443'], 1, 'HTTP uses port 80 (HTTPS 443, MySQL 3306).'),
+  Q(U1 + ' (Ex. 1.3)', 'medium', 'Status code 404', 'The browser asks for /about.html but there is no such file on the server. Which status code comes back?',
+    ['200 OK', '301 Moved', '404 Not Found', '500 Server Error'], 2, '404 means the server is fine but the resource does not exist.'),
+  F(U1 + ' (Ex. 1.3)', 'medium', 'Tiny Node server', 'Complete the Node.js web server so it listens on port 3000.',
+    "const http = require('___');\nconst server = http.createServer((req, res) => {\n  res.end('Hello');\n});\nserver.___(3000);",
+    [['http'], ['listen']], 'The built-in http module creates the server and listen(port) starts it.', 'Two words: a built-in module name and a method name.', true),
+  O(U1 + ' (Ex. 1.3)', 'medium', 'Build the server', 'Put these lines of a Node.js server in the correct order.',
+    ["const http = require('http');", 'const server = http.createServer((req, res) => {', "  res.end('Hello');", '});', 'server.listen(3000);'],
+    'Load the module, create the server with a request handler, close it, then start listening.'),
+  Q(U1 + ' (Ex. 1.4)', 'easy', 'XAMPP controls', 'Which XAMPP Control Panel button opens the web-based dashboard of a running Apache?',
+    ['Config', 'Logs', 'Admin', 'Stop'], 2, 'Admin opens the module’s dashboard; Config edits files, Logs shows the logs.'),
+  Q(U1 + ' (Ex. 1.5)', 'easy', 'Developer tools key', 'Which key opens the browser Developer Tools on most browsers?',
+    ['F5', 'F12', 'F1', 'Esc'], 1, 'F12 (or Ctrl+Shift+I) opens DevTools.'),
+  Q(U1 + ' (Ex. 1.5)', 'medium', 'Where are headers?', 'Which DevTools panel shows the request and response headers of the page?',
+    ['Elements', 'Console', 'Network', 'Sources'], 2, 'The Network panel lists every request with status, timing and headers.'),
+  Q(U1 + ' (Ex. 1.5)', 'easy', 'View source', 'Which shortcut opens the raw HTML of a page (View Page Source)?',
+    ['Ctrl+U', 'Ctrl+S', 'Ctrl+P', 'Ctrl+E'], 0, 'Ctrl+U shows the page source; the rendered page hides comments but the source shows them.'),
+  F(U1 + ' (Ex. 1.6)', 'easy', 'Required field', 'Make the input mandatory using the HTML5 attribute.',
+    '<input type="text" name="name" ___>', [['required']], 'The required attribute blocks submitting an empty field.', 'It is a boolean attribute named after what the field is.'),
+  Q(U1 + ' (Ex. 1.6)', 'medium', 'Turn off bubbles', 'Which form attribute disables the browser’s default validation bubbles so your own JavaScript validation runs?',
+    ['noscript', 'novalidate', 'autocomplete="off"', 'formnovalidate="false"'], 1, '<form novalidate> skips the built-in bubbles.'),
+  X(U1 + ' (Ex. 1.6)', 'medium', 'Spot the typo', 'One line has a typo, so the browser ignores the rule. Click the buggy line.',
+    '<form>\n  <input type="email" name="email" requird>\n  <button type="submit">Send</button>\n</form>', 2,
+    '"requird" is misspelled, so the field is not required. It should be "required".'),
+  Q(U2 + ' (Ex. 2.1)', 'easy', 'First line', 'Which declaration must be the very first line of an HTML5 document?',
+    ['<html>', '<!DOCTYPE html>', '<head>', '<meta charset="UTF-8">'], 1, '<!DOCTYPE html> tells the browser to use standards mode.'),
+  F(U2 + ' (Ex. 2.1)', 'easy', 'Character set', 'Fill in the attribute that sets the character encoding.',
+    '<meta ___="UTF-8">', [['charset']], 'charset="UTF-8" lets the page show all characters correctly.'),
+  Q(U2 + ' (Ex. 2.1)', 'easy', 'Tab title', 'Which tag sets the text shown on the browser tab?',
+    ['<h1>', '<title>', '<header>', '<meta>'], 1, '<title> inside <head> sets the tab title.'),
+  Q(U2 + ' (Ex. 2.1)', 'medium', 'Dropdown', 'Which element creates a drop-down list in a form?',
+    ['<input type="list">', '<dropdown>', '<select>', '<option>'], 2, '<select> holds <option> children.'),
+  Q(U2 + ' (Ex. 2.1)', 'medium', 'Radio groups', 'What makes several radio buttons behave as one group (only one selectable)?',
+    ['The same id', 'The same name', 'The same value', 'The same class'], 1, 'Radio buttons with the same name attribute form a group.'),
+  F(U2 + ' (Ex. 2.1)', 'medium', 'Label link', 'Link the label to the input so clicking the label focuses the field.',
+    '<label for="email">Email</label>\n<input type="email" ___="email">', [['id']], 'The label’s for must match the input’s id.', 'The attribute that gives an element a unique name on the page.'),
+  Q(U2 + ' (Ex. 2.2)', 'easy', 'Image fallback', 'Which <img> attribute supplies text shown when the image cannot load?',
+    ['title', 'alt', 'src', 'caption'], 1, 'alt gives fallback text and helps screen readers.'),
+  F(U2 + ' (Ex. 2.2)', 'easy', 'Show the player', 'Add the attribute that displays play/pause/volume controls.',
+    '<video ___ width="320">\n  <source src="movie.mp4" type="video/mp4">\n</video>', [['controls']], 'Without controls the player is invisible/unusable.'),
+  Q(U2 + ' (Ex. 2.2)', 'medium', 'Why many sources?', 'Why do <audio> and <video> contain several <source> elements?',
+    ['To play them all together', 'So the browser can pick a format it supports', 'To make the file smaller', 'To add subtitles'], 1, 'The browser uses the first source whose format it can play.'),
+  Q(U2 + ' (Ex. 2.3)', 'easy', 'Not semantic', 'Which of these is NOT a semantic HTML5 element?',
+    ['<header>', '<article>', '<div>', '<footer>'], 2, '<div> has no meaning by itself – it is only a generic container.'),
+  O(U2 + ' (Ex. 2.3)', 'medium', 'Semantic skeleton', 'Arrange the semantic page skeleton in the correct order.',
+    ['<body>', '  <header>Site title</header>', '  <nav>Links</nav>', '  <main>Content</main>', '  <footer>Copyright</footer>', '</body>'],
+    'A page reads top to bottom: header, navigation, main content, then footer.'),
+  Q(U2 + ' (Ex. 2.3)', 'medium', 'Figure pair', 'Which element is used together with <figure> to caption an image?',
+    ['<caption>', '<figcaption>', '<legend>', '<label>'], 1, '<figcaption> describes the content of its parent <figure>.'),
+  Q(U2 + ' (Ex. 2.4)', 'easy', 'New tab link', 'Which attribute makes a link open in a new tab?',
+    ['rel="new"', 'target="_blank"', 'open="tab"', 'href="_new"'], 1, 'target="_blank" opens the link in a new tab.'),
+  F(U2 + ' (Ex. 2.4)', 'easy', 'Email link', 'Complete the link that opens the visitor’s email app.',
+    '<a href="___:hello@srm.edu">Mail us</a>', [['mailto']], 'The mailto: scheme starts an email.'),
+  Q(U2 + ' (Ex. 2.4)', 'medium', 'Jump link', 'A section has id="about". Which link jumps to it on the same page?',
+    ['<a href="about">', '<a href="#about">', '<a href="@about">', '<a href="/about#">'], 1, 'A fragment link uses # followed by the id.'),
+  X(U2 + ' (Ex. 2.5)', 'medium', 'Broken image tag', 'The image never appears. Click the line with the bug.',
+    '<div class="gallery">\n  <imag src="lab.jpg" alt="Computer Lab">\n  <p>Our lab</p>\n</div>', 2,
+    'The tag is <img>, not <imag>.', 'Check the spelling of the tag name.'),
+  O(U2 + ' (Ex. 2.5)', 'hard', 'Gallery card', 'Put the lines of this figure card in the correct order.',
+    ['<figure>', '  <img src="hostel.jpg" alt="Hostel">', '  <figcaption>Hostel</figcaption>', '</figure>'],
+    'The <img> sits inside <figure>, followed by its <figcaption>.'),
+  Q(U2 + ' (Ex. 2.6)', 'hard', 'Homepage layout', 'Where do the "Quick facts" about a college belong on a semantic homepage?',
+    ['<footer>', '<aside>', '<header>', '<title>'], 1, '<aside> holds content related to, but separate from, the main content.')
+];

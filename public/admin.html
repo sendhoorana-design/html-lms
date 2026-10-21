@@ -7,6 +7,13 @@
 <link rel="stylesheet" href="/css/style.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
+<style>
+  .presence-cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
+  .presence-list { max-height:320px; overflow:auto; font-size:13px; }
+  .presence-row { display:flex; justify-content:space-between; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); }
+  .presence-row:last-child { border-bottom:0; }
+  .presence-chip { padding:6px 14px; border-radius:999px; font-weight:600; font-size:13px; border:1px solid var(--border); background:var(--panel-2); }
+</style>
 </head>
 <body>
 
@@ -22,6 +29,7 @@
   <button class="tab-btn active" data-tab="monitor">Live Monitor</button>
   <button class="tab-btn" data-tab="students">Students</button>
   <button class="tab-btn" data-tab="exams">Exams</button>
+  <button class="tab-btn" data-tab="challenges">Challenges</button>
   <button class="tab-btn" data-tab="feedback">Feedback</button>
   <button class="tab-btn" data-tab="admins" id="adminsTabBtn" style="display:none;">Admin Requests</button>
 </div>
@@ -41,6 +49,27 @@
       <thead><tr><th style="width:30px;"><input id="monitorSelectAll" type="checkbox" /></th><th>Student</th><th>Exam</th><th>Status</th><th>Violations</th><th>Last activity</th><th></th></tr></thead>
       <tbody id="monitorBody"></tbody>
     </table>
+
+    <!-- Presence of every student who has an exam assigned: active / idle / offline -->
+    <div class="flex-between mt-16">
+      <h3 style="margin:0;">Student presence <span class="muted" style="font-size:13px; font-weight:400;">(students with an assigned exam)</span></h3>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <label style="margin:0; font-size:13px;">Idle after</label>
+        <select id="idleAfterSelect" style="width:auto;">
+          <option value="60">1 min</option>
+          <option value="120">2 min</option>
+          <option value="300">5 min</option>
+          <option value="600">10 min</option>
+          <option value="900">15 min</option>
+        </select>
+      </div>
+    </div>
+    <div id="presenceSummary" class="mt-16" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+    <div class="presence-cols mt-16">
+      <div class="card"><h4 style="margin-top:0;">🔴 Offline <span class="muted" id="presenceOfflineN"></span></h4><div id="presenceOffline" class="presence-list"></div></div>
+      <div class="card"><h4 style="margin-top:0;">🟡 Idle <span class="muted" id="presenceIdleN"></span></h4><div id="presenceIdle" class="presence-list"></div></div>
+      <div class="card"><h4 style="margin-top:0;">🟢 Active <span class="muted" id="presenceActiveN"></span></h4><div id="presenceActive" class="presence-list"></div></div>
+    </div>
   </div>
 
   <!-- STUDENTS -->
@@ -200,6 +229,77 @@
     <table>
       <thead><tr><th>Title</th><th>Time limit</th><th>Proctoring</th><th>Created</th><th></th></tr></thead>
       <tbody id="examsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- CHALLENGES -->
+  <div id="tab-challenges" class="tab-panel" style="display:none;">
+    <div class="flex-between">
+      <h2 style="margin:0;">Challenges</h2>
+      <div style="display:flex; gap:10px; align-items:center;" id="challengeAdminBtns">
+        <button class="secondary" id="chSeedBtn">Load starter challenges</button>
+        <button id="chNewBtn">+ New challenge</button>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:6px;">Quizzes, fill-the-blanks, find-the-bug and ordering puzzles that students solve for points. Students see the "Challenges" tab next to their exams. <span id="chSeedStatus"></span></p>
+
+    <div id="chEditor" class="card" style="display:none; max-width:820px;">
+      <h3 style="margin-top:0;" id="chEditorTitle">New challenge</h3>
+      <input type="hidden" id="ce_id" />
+      <label>Title</label><input id="ce_title" />
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:150px;"><label>Type</label>
+          <select id="ce_type"><option value="quiz">Quiz (multiple choice)</option><option value="fill">Fill the blanks</option><option value="fix">Find the bug</option><option value="order">Order the code lines</option></select></div>
+        <div style="flex:1; min-width:120px;"><label>Difficulty</label>
+          <select id="ce_difficulty"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>
+        <div style="width:110px;"><label>Points</label><input id="ce_points" type="number" min="1" max="100" value="10" /></div>
+      </div>
+      <label>Topic / lab experiment (e.g. "Unit 3 – CSS (Ex. 3.1)")</label><input id="ce_topic" />
+      <label>Question / instructions shown to students</label><textarea id="ce_prompt" rows="2"></textarea>
+      <div id="ce_codeWrap"><label id="ce_codeLabel">Code (optional)</label><textarea id="ce_code" rows="6" style="font-family:Consolas,Menlo,monospace;"></textarea></div>
+      <div id="ce_quizWrap">
+        <label>Options (one per line)</label><textarea id="ce_options" rows="4"></textarea>
+        <label>Number of the correct option (1 = first line)</label><input id="ce_correct" type="number" min="1" value="1" style="width:120px;" />
+      </div>
+      <div id="ce_fillWrap" style="display:none;">
+        <label>Accepted answers – one line per blank, in order. Separate alternatives with |</label><textarea id="ce_answers" rows="3" placeholder="color&#10;textContent|innerText"></textarea>
+        <div class="checkbox-row"><input type="checkbox" id="ce_case" /><label for="ce_case" style="margin:0;">Case-sensitive answers (use for JavaScript)</label></div>
+      </div>
+      <div id="ce_fixWrap" style="display:none;">
+        <label>Buggy line number(s), comma-separated (1 = first line of the code)</label><input id="ce_bug" placeholder="2" style="width:200px;" />
+      </div>
+      <div id="ce_orderWrap" style="display:none;">
+        <label>Lines in the CORRECT order (one per line; students see them shuffled)</label><textarea id="ce_lines" rows="6" style="font-family:Consolas,Menlo,monospace;"></textarea>
+      </div>
+      <label>Hint (optional)</label><input id="ce_hint" />
+      <label>Explanation shown after a correct answer (optional)</label><textarea id="ce_explanation" rows="2"></textarea>
+      <div class="checkbox-row"><input type="checkbox" id="ce_active" checked /><label for="ce_active" style="margin:0;">Visible to students</label></div>
+      <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+        <button id="ceSaveBtn">Save challenge</button>
+        <button class="secondary" id="ceCancelBtn">Cancel</button>
+        <span class="muted" id="ceStatus" style="font-size:12px;"></span>
+      </div>
+    </div>
+
+    <div class="flex-between mt-16">
+      <div style="display:flex; gap:10px; align-items:center;">
+        <select id="chAdminTypeFilter" style="width:auto;"><option value="">All types</option><option value="quiz">Quiz</option><option value="fill">Fill</option><option value="fix">Find the bug</option><option value="order">Order</option></select>
+        <span class="muted" id="chAdminCount"></span>
+      </div>
+    </div>
+    <table class="mt-16">
+      <thead><tr><th>Title</th><th>Topic</th><th>Type</th><th>Level</th><th>Points</th><th>Solved by</th><th>Visible</th><th></th></tr></thead>
+      <tbody id="chAdminBody"></tbody>
+    </table>
+
+    <div class="flex-between mt-16" style="margin-top:28px;">
+      <h3 style="margin:0;">Student points</h3>
+      <button class="secondary" id="pointsCsvBtn">Download CSV</button>
+    </div>
+    <div id="pointsSummary" class="muted" style="margin:6px 0;"></div>
+    <table>
+      <thead><tr><th>Rank</th><th>Student</th><th>Username</th><th>Class</th><th>Points</th><th>Solved</th></tr></thead>
+      <tbody id="pointsBody"></tbody>
     </table>
   </div>
 
