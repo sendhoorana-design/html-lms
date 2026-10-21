@@ -9,6 +9,10 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
 <style>
   body { overflow: hidden; }
+  /* The body is locked (exam/practice views fill the screen), so the assignment list must scroll
+     itself — otherwise a long exam list can't be scrolled, especially on mobile. */
+  #assignmentList { height:100vh; height:100dvh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
+  @media (max-width: 768px) { #assignmentsTable { display:block; overflow-x:auto; } }
 
   /* ---- Practice compiler (OneCompiler-style) ---- */
   .pc-wrap { height:100vh; display:flex; flex-direction:column; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; --pc-bg:#fff; --pc-panel:#f6f7f9; --pc-border:#e3e5ea; --pc-text:#222; --pc-muted:#777; --pc-accent:#4f5bd5; --pc-tab-active:#fff; }
