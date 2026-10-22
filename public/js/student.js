@@ -179,10 +179,10 @@
 
   function renderLive() {
     const ov = $('liveSlideOverlay'); const banner = $('liveSlideBanner');
-    if (!live) { setLiveFs(false); ov.style.display = 'none'; banner.style.display = 'none'; $('liveSlideImg').removeAttribute('src'); liveDismissed = false; return; }
+    if (!live) { liveFallbackOk = false; setLiveFs(false); ov.style.display = 'none'; banner.style.display = 'none'; $('liveSlideImg').removeAttribute('src'); liveDismissed = false; return; }
     const inExam = examIsOpen();
     $('liveSlideBackBtn').style.display = inExam ? '' : 'none';
-    if (inExam && liveDismissed) { ov.style.display = 'none'; banner.style.display = 'block'; return; }
+    if (inExam && liveDismissed) { ov.style.display = 'none'; $('liveFsGate').style.display = 'none'; banner.style.display = 'block'; return; }
     banner.style.display = 'none';
     ov.style.display = 'flex';
     $('liveSlideTitle').textContent = live.title;
@@ -190,6 +190,7 @@
     const url = `/api/presentations/${live.id}/slides/${live.index}`;
     const img = $('liveSlideImg');
     if (img.getAttribute('src') !== url) img.src = url;
+    updateLiveGate();
     if (live.index + 1 < live.slide_count) { const nx = new Image(); nx.src = `/api/presentations/${live.id}/slides/${live.index + 1}`; }
   }
 
@@ -217,6 +218,17 @@
   // Full screen for the live slide. Android/desktop use the Fullscreen API; iPhone Safari doesn't
   // allow it for normal pages, so we fall back to an "immersive" mode (hides the top bar and
   // fills the screen; tap the slide to bring the bar back).
+  let liveFallbackOk = false; // browsers without the Fullscreen API (iPhone Safari): gate passed once
+  function fsSupported() { const o = $('liveSlideOverlay'); return !!(o.requestFullscreen || o.webkitRequestFullscreen); }
+  // Proctored mode: the slide stays hidden behind a gate until the student is in full screen.
+  function updateLiveGate() {
+    const ov = $('liveSlideOverlay'); const gate = $('liveFsGate');
+    if (!live || ov.style.display === 'none') { gate.style.display = 'none'; return; }
+    const needGate = fsSupported() ? !liveFsElement() : !liveFallbackOk;
+    gate.style.display = needGate ? 'flex' : 'none';
+    $('liveFsGateTitle').textContent = live.title;
+    $('liveFsGateTip').style.display = fsSupported() ? 'none' : 'block';
+  }
   function liveFsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
   function setLiveFs(on) {
     const ov = $('liveSlideOverlay');
@@ -224,6 +236,7 @@
       ov.classList.remove('ls-immersive');
       if (liveFsElement()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
       $('liveSlideFsBtn').textContent = '⛶ Full screen';
+      updateLiveGate();
       return;
     }
     const req = ov.requestFullscreen || ov.webkitRequestFullscreen;
@@ -232,9 +245,11 @@
     if (req) {
       try {
         const r = req.call(ov);
-        if (r && r.catch) r.catch(() => { /* stay in immersive mode */ });
+        if (r && r.then) r.then(updateLiveGate, () => { ov.classList.remove('ls-immersive'); updateLiveGate(); });
       } catch (e) { /* stay in immersive mode */ }
     }
+    if (!req) liveFallbackOk = true;
+    updateLiveGate();
     try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* optional */ }
   }
 
@@ -247,13 +262,15 @@
       });
       socket.on('connect', refreshLive); // catches up after a dropped connection / late join
     }
+    $('liveFsGateBtn').addEventListener('click', () => setLiveFs(true));
     $('liveSlideFsBtn').addEventListener('click', () => setLiveFs(!$('liveSlideOverlay').classList.contains('ls-immersive')));
     // Tap the slide while in immersive mode to peek at the bar (and the exit button).
     $('liveSlideOverlay').querySelector('.ls-stage').addEventListener('click', () => {
       const ov = $('liveSlideOverlay');
-      if (ov.classList.contains('ls-immersive') && !liveFsElement()) setLiveFs(false);
+      // Fallback (no Fullscreen API) only: tap toggles the top bar.
+      if (!fsSupported()) ov.classList.toggle('ls-immersive');
     });
-    const onFsChange = () => { if (!liveFsElement() && $('liveSlideOverlay').classList.contains('ls-immersive') && 'fullscreenEnabled' in document && document.fullscreenEnabled) setLiveFs(false); };
+    const onFsChange = () => { updateLiveGate(); if (!liveFsElement() && $('liveSlideOverlay').classList.contains('ls-immersive') && 'fullscreenEnabled' in document && document.fullscreenEnabled) setLiveFs(false); };
     document.addEventListener('fullscreenchange', onFsChange);
     document.addEventListener('webkitfullscreenchange', onFsChange);
     $('liveSlideBackBtn').addEventListener('click', () => { liveDismissed = true; renderLive(); });
