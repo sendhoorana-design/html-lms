@@ -30,6 +30,7 @@
   <button class="tab-btn" data-tab="students">Students</button>
   <button class="tab-btn" data-tab="exams">Exams</button>
   <button class="tab-btn" data-tab="challenges">Challenges</button>
+  <button class="tab-btn" data-tab="presentations">Presentations</button>
   <button class="tab-btn" data-tab="feedback">Feedback</button>
   <button class="tab-btn" data-tab="admins" id="adminsTabBtn" style="display:none;">Admin Requests</button>
 </div>
@@ -301,6 +302,48 @@
       <thead><tr><th>Rank</th><th>Student</th><th>Username</th><th>Class</th><th>Points</th><th>Solved</th></tr></thead>
       <tbody id="pointsBody"></tbody>
     </table>
+  </div>
+
+  <!-- PRESENTATIONS (live slide sharing) -->
+  <div id="tab-presentations" class="tab-panel" style="display:none;">
+    <h2 style="margin-top:0;">Live presentations</h2>
+    <p class="muted">Upload a PPTX or PDF, then press Start. Your students' screens follow your current slide automatically (they can't navigate on their own). <span id="presScopeNote"></span></p>
+
+    <div class="card" id="presUploadCard" style="max-width:760px;">
+      <h3 style="margin-top:0;">New presentation</h3>
+      <label>Title</label><input id="presTitle" placeholder="e.g. Unit 2 – CSS Selectors" />
+      <label>File (.pptx or .pdf)</label><input type="file" id="presFile" accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+      <p class="muted" style="margin:6px 0;">Slides are converted to images in your browser, then uploaded. PDF gives the most faithful result (File → Export as PDF in PowerPoint); some PPTX effects may look different.</p>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button id="presUploadBtn">Convert &amp; upload</button>
+        <span id="presProgress" class="muted"></span>
+      </div>
+    </div>
+
+    <h3>Your presentations</h3>
+    <table>
+      <thead><tr><th>Title</th><th>Presenter</th><th>Slides</th><th>Status</th><th></th></tr></thead>
+      <tbody id="presBody"></tbody>
+    </table>
+
+    <div id="presPresenter" class="card" style="display:none; margin-top:16px;">
+      <div class="flex-between">
+        <h3 style="margin:0;" id="presPresenterTitle"></h3>
+        <div style="display:flex; gap:8px;">
+          <button class="secondary" id="presFullBtn">Full screen</button>
+          <button class="danger" id="presStopBtn">End presentation</button>
+        </div>
+      </div>
+      <div id="presStage" style="background:#000; margin-top:10px; border-radius:8px; text-align:center; position:relative;">
+        <img id="presImg" alt="slide" style="max-width:100%; max-height:70vh; display:block; margin:0 auto;" />
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; justify-content:center; margin-top:10px;">
+        <button class="secondary" id="presPrevBtn">&larr; Previous</button>
+        <span id="presCounter" style="min-width:90px; text-align:center;"></span>
+        <button id="presNextBtn">Next &rarr;</button>
+      </div>
+      <p class="muted" style="text-align:center; margin:6px 0 0;">Arrow keys / Space also work. Students are viewing: <b id="presAudience">your students</b>.</p>
+    </div>
   </div>
 
   <!-- FEEDBACK (anonymous student feedback) -->

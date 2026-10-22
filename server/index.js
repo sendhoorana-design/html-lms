@@ -12,6 +12,8 @@ const ExamAssignment = require('./models/ExamAssignment');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const studentRoutes = require('./routes/student');
+const presentationRoutes = require('./routes/presentations');
+const User = require('./models/User');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,13 +25,15 @@ app.set('io', io);
 app.set('trust proxy', 1);
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+// 3 MB: slide images are uploaded one per request as base64 data URLs (capped at 2 MB decoded).
+app.use(express.json({ limit: '3mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentRoutes);
+app.use('/api/presentations', presentationRoutes);
 
 app.get('/', (req, res) => res.redirect('/login.html'));
 
@@ -63,6 +67,11 @@ io.on('connection', (socket) => {
     socket.join('admins');
   } else if (user.role === 'student') {
     socket.join(`student_${user.id}`);
+    // Live presentations: everyone gets the main admin's; students also get their own admin's.
+    socket.join('pres_all');
+    User.findById(user.id).select('managing_admin').lean()
+      .then((me) => { if (me && me.managing_admin) socket.join(`pres_admin_${me.managing_admin}`); })
+      .catch(() => { /* best-effort */ });
   }
 
   // Student heartbeat -> notify admins of live status

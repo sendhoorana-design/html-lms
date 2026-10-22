@@ -47,6 +47,7 @@
     $('feedbackCategoryFilter').addEventListener('change', loadFeedback);
     $('feedbackCsvBtn').addEventListener('click', downloadFeedbackCsv);
     wireChallengesAdmin();
+    wirePresentations();
     $('fbSettingsSaveBtn').addEventListener('click', saveFeedbackSettings);
 
     // Main-admin-only UI: creating/importing/removing students, bulk-assigning students to a
@@ -104,9 +105,221 @@
     setTimeout(() => { btn.style.color = ''; }, 2000);
   }
 
+
+  // ---------------- Live presentations ----------------
+
+  const PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const PPTX_SRC = 'https://cdn.jsdelivr.net/npm/pptx-preview@1.0.7/dist/pptx-preview.umd.js';
+  const H2C_SRC = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+  const SLIDE_W = 1280;
+  let presList = [];
+  let presCurrent = null; // presentation being presented { id, slide_count, index, title }
+  let presBusy = false;
+
+  const scriptPromises = {};
+  function loadScript(src) {
+    if (!scriptPromises[src]) {
+      scriptPromises[src] = new Promise((resolve, reject) => {
+        const el = document.createElement('script');
+        el.src = src; el.onload = resolve;
+        el.onerror = () => { delete scriptPromises[src]; reject(new Error('Could not load ' + src.split('/').pop() + ' — check your internet connection')); };
+        document.head.appendChild(el);
+      });
+    }
+    return scriptPromises[src];
+  }
+
+  function setPresProgress(t) { $('presProgress').textContent = t || ''; }
+
+  // PDF -> array of JPEG data URLs (lazy: calls onSlide(i, dataUrl) as each page renders)
+  async function convertPdf(file, onTotal, onSlide) {
+    await loadScript(PDFJS_SRC);
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    const doc = await window.pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    onTotal(doc.numPages);
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const base = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: SLIDE_W / base.width });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      await onSlide(i - 1, canvas.toDataURL('image/jpeg', 0.82));
+    }
+  }
+
+  async function convertPptx(file, onTotal, onSlide) {
+    await Promise.all([loadScript(PPTX_SRC), loadScript(H2C_SRC)]);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:0;top:0;width:960px;height:720px;z-index:-1;pointer-events:none;background:#fff;overflow:hidden;';
+    document.body.appendChild(host);
+    try {
+      const prev = window.pptxPreview.init(host, { width: 960, height: 540, mode: 'slide' });
+      await prev.preview(await file.arrayBuffer());
+      const total = prev.slideCount;
+      onTotal(total);
+      for (let i = 0; i < total; i++) {
+        if (i > 0) prev.renderSingleSlide(i);
+        await new Promise((r) => setTimeout(r, 250));
+        const el = host.querySelector('.pptx-preview-slide-wrapper') || host;
+        const canvas = await window.html2canvas(el, { backgroundColor: '#ffffff', scale: SLIDE_W / el.offsetWidth, useCORS: true, logging: false });
+        await onSlide(i, canvas.toDataURL('image/jpeg', 0.82));
+      }
+    } finally {
+      host.remove();
+    }
+  }
+
+  async function uploadPresentation() {
+    if (presBusy) return;
+    const file = $('presFile').files[0];
+    const title = $('presTitle').value.trim() || (file ? file.name.replace(/\.[^.]+$/, '') : '');
+    if (!file) { alert('Choose a .pptx or .pdf file first.'); return; }
+    const name = file.name.toLowerCase();
+    const isPdf = name.endsWith('.pdf');
+    if (!isPdf && !name.endsWith('.pptx')) { alert('Only .pptx and .pdf files are supported. (Old .ppt files: save as .pptx or export to PDF.)'); return; }
+    presBusy = true; $('presUploadBtn').disabled = true;
+    let presId = null; let total = 0;
+    try {
+      setPresProgress('Reading file…');
+      const onTotal = async (n) => { total = n; };
+      const slides = [];
+      // Convert first, then create the record once we know the slide count, then upload each image.
+      const collected = [];
+      const conv = isPdf ? convertPdf : convertPptx;
+      await conv(file, (n) => { total = n; }, async (i, url) => {
+        collected[i] = url;
+        setPresProgress(`Converting slide ${i + 1} of ${total}…`);
+      });
+      if (!collected.length) throw new Error('No slides found in that file');
+      const created = await api('/api/presentations', { method: 'POST', body: JSON.stringify({ title, slide_count: collected.length }) });
+      presId = created.id;
+      for (let i = 0; i < collected.length; i++) {
+        setPresProgress(`Uploading slide ${i + 1} of ${collected.length}…`);
+        await api(`/api/presentations/${presId}/slides/${i}`, { method: 'PUT', body: JSON.stringify({ image: collected[i] }) });
+      }
+      setPresProgress(`Done — ${collected.length} slides uploaded.`);
+      $('presFile').value = ''; $('presTitle').value = '';
+      await loadPresentations();
+    } catch (e) {
+      setPresProgress('');
+      if (presId) { try { await api(`/api/presentations/${presId}`, { method: 'DELETE' }); } catch (x) { /* ignore */ } }
+      alert('Upload failed: ' + e.message + (isPdf ? '' : '\n\nTip: export the deck to PDF from PowerPoint and upload that instead.'));
+    } finally {
+      presBusy = false; $('presUploadBtn').disabled = false;
+    }
+  }
+
+  async function loadPresentations() {
+    $('presScopeNote').textContent = isSuperAdmin
+      ? 'As the main admin, your live presentation is shown to ALL students.'
+      : 'Your live presentation is shown to the students assigned to you.';
+    let data;
+    try { data = await api('/api/presentations'); } catch (e) { return; }
+    presList = data.presentations;
+    const body = $('presBody');
+    if (!presList.length) { body.innerHTML = '<tr><td colspan="5" class="muted">No presentations yet.</td></tr>'; return; }
+    body.innerHTML = presList.map((p) => {
+      const ready = p.uploaded >= p.slide_count;
+      const status = p.live ? '<span class="badge" style="background:#dc2626;color:#fff;">● LIVE (slide ' + (p.index + 1) + ')</span>' : (ready ? 'Ready' : `Incomplete (${p.uploaded}/${p.slide_count})`);
+      const canControl = isSuperAdmin || p.mine;
+      let actions = '';
+      if (canControl) {
+        actions += p.live
+          ? `<button data-pres-act="present" data-id="${p.id}">Open presenter</button> <button class="danger" data-pres-act="stop" data-id="${p.id}">End</button>`
+          : `<button data-pres-act="start" data-id="${p.id}" ${ready ? '' : 'disabled'}>Start</button>`;
+        actions += ` <button class="danger secondary" data-pres-act="delete" data-id="${p.id}">Delete</button>`;
+      }
+      return `<tr><td>${escapeHtml(p.title)}</td><td>${escapeHtml(p.owner_name)}${p.mine ? ' (you)' : ''}</td><td>${p.slide_count}</td><td>${status}</td><td>${actions}</td></tr>`;
+    }).join('');
+  }
+
+  function showSlide(index) {
+    if (!presCurrent) return;
+    presCurrent.index = index;
+    $('presImg').src = `/api/presentations/${presCurrent.id}/slides/${index}`;
+    $('presCounter').textContent = `${index + 1} / ${presCurrent.slide_count}`;
+    $('presPrevBtn').disabled = index <= 0;
+    $('presNextBtn').disabled = index >= presCurrent.slide_count - 1;
+    // Warm the cache for the next slide so students (and you) flip instantly.
+    if (index + 1 < presCurrent.slide_count) { const im = new Image(); im.src = `/api/presentations/${presCurrent.id}/slides/${index + 1}`; }
+  }
+
+  function openPresenter(p) {
+    presCurrent = { id: p.id, slide_count: p.slide_count, index: p.index || 0, title: p.title };
+    $('presPresenter').style.display = 'block';
+    $('presPresenterTitle').textContent = '● LIVE — ' + p.title;
+    $('presAudience').textContent = isSuperAdmin ? 'ALL students' : 'your students';
+    showSlide(presCurrent.index);
+    $('presPresenter').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function closePresenter() {
+    presCurrent = null;
+    $('presPresenter').style.display = 'none';
+    $('presImg').removeAttribute('src');
+  }
+
+  async function gotoSlide(index) {
+    if (!presCurrent) return;
+    if (index < 0 || index >= presCurrent.slide_count || index === presCurrent.index) return;
+    const prevIndex = presCurrent.index;
+    showSlide(index); // optimistic; students update as soon as the server broadcasts
+    try { await api(`/api/presentations/${presCurrent.id}/goto`, { method: 'POST', body: JSON.stringify({ index }) }); }
+    catch (e) { showSlide(prevIndex); alert('Could not change slide: ' + e.message); }
+  }
+
+  async function stopPresentation(id) {
+    try { await api(`/api/presentations/${id}/stop`, { method: 'POST' }); } catch (e) { alert(e.message); }
+    if (presCurrent && presCurrent.id === id) closePresenter();
+    await loadPresentations();
+  }
+
+  function wirePresentations() {
+    $('presUploadBtn').addEventListener('click', uploadPresentation);
+    $('presPrevBtn').addEventListener('click', () => gotoSlide(presCurrent.index - 1));
+    $('presNextBtn').addEventListener('click', () => gotoSlide(presCurrent.index + 1));
+    $('presStopBtn').addEventListener('click', () => { if (presCurrent) stopPresentation(presCurrent.id); });
+    $('presFullBtn').addEventListener('click', () => { const el = $('presStage'); if (el.requestFullscreen) el.requestFullscreen(); });
+    document.addEventListener('keydown', (e) => {
+      if (!presCurrent || $('tab-presentations').style.display === 'none') return;
+      const tag = (e.target && e.target.tagName) || '';
+      if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); gotoSlide(presCurrent.index + 1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); gotoSlide(presCurrent.index - 1); }
+    });
+    $('presBody').addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-pres-act]');
+      if (!btn) return;
+      const id = btn.dataset.id; const act = btn.dataset.presAct;
+      const p = presList.find((x) => x.id === id);
+      try {
+        if (act === 'start') {
+          const st = await api(`/api/presentations/${id}/start`, { method: 'POST' });
+          await loadPresentations();
+          openPresenter({ ...p, ...st });
+        } else if (act === 'present') {
+          const st = await api(`/api/presentations/${id}/state`);
+          openPresenter({ ...p, ...st });
+        } else if (act === 'stop') {
+          await stopPresentation(id);
+        } else if (act === 'delete') {
+          if (!confirm(`Delete "${p.title}"? This cannot be undone.`)) return;
+          await api(`/api/presentations/${id}`, { method: 'DELETE' });
+          if (presCurrent && presCurrent.id === id) closePresenter();
+          await loadPresentations();
+        }
+      } catch (err) { alert(err.message); }
+    });
+  }
+
   function switchTab(tab) {
     if (tab === 'feedback') loadFeedback();
     if (tab === 'challenges') loadChallengesAdmin();
+    if (tab === 'presentations') loadPresentations();
     document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tab-panel').forEach((p) => p.style.display = (p.id === `tab-${tab}` ? 'block' : 'none'));
   }

@@ -60,6 +60,13 @@
   @media (max-width: 768px) { .pc-main { flex-direction:column; } .pc-editor-col { border-right:none; border-bottom:1px solid var(--pc-border); } }
 
   /* ---- Exams / Challenges tabs + challenge player ---- */
+  #liveSlideOverlay { position:fixed; inset:0; z-index:9000; background:#000; display:none; flex-direction:column; user-select:none; -webkit-user-select:none; }
+  #liveSlideOverlay .ls-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 14px; background:#111; color:#fff; font-size:14px; }
+  #liveSlideOverlay .ls-live { background:#dc2626; color:#fff; font-weight:700; font-size:12px; padding:3px 10px; border-radius:999px; animation:lsPulse 1.6s infinite; }
+  @keyframes lsPulse { 50% { opacity:.55; } }
+  #liveSlideOverlay .ls-stage { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; padding:8px; }
+  #liveSlideOverlay img { max-width:100%; max-height:100%; object-fit:contain; pointer-events:none; -webkit-user-drag:none; }
+  #liveSlideBanner { position:fixed; right:14px; bottom:14px; z-index:8999; background:#dc2626; color:#fff; padding:10px 16px; border-radius:999px; cursor:pointer; font-weight:700; box-shadow:0 4px 14px rgba(0,0,0,.4); display:none; }
   .st-tabs { display:flex; gap:8px; margin:6px 0 14px; align-items:center; flex-wrap:wrap; }
   .st-tab { background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 16px; border-radius:999px; cursor:pointer; font-size:14px; }
   .st-tab.active { background:var(--accent); border-color:var(--accent); color:#fff; }
@@ -352,6 +359,16 @@
     </form>
   </div>
 </div>
+
+<!-- Live presentation: follows the admin's slide. No navigation controls on purpose. -->
+<div id="liveSlideOverlay">
+  <div class="ls-bar">
+    <div><span class="ls-live">● LIVE</span> <span id="liveSlideTitle" style="margin-left:8px;"></span></div>
+    <div><span id="liveSlideCounter"></span> <button class="secondary" id="liveSlideBackBtn" style="display:none; margin-left:10px;">Back to exam</button></div>
+  </div>
+  <div class="ls-stage"><img id="liveSlideImg" alt="Live slide" draggable="false" /></div>
+</div>
+<div id="liveSlideBanner">● Live presentation — tap to watch</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>

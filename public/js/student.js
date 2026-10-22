@@ -156,6 +156,7 @@
     });
 
     socket = io({ withCredentials: true });
+    wireLivePresentation();
 
     if (me.must_change_password) {
       openPasswordModal(true);
@@ -163,6 +164,70 @@
     }
 
     await showAssignmentList();
+  }
+
+
+  // ---------------- Live presentation (follows the admin) ----------------
+
+  let live = null;            // { id, title, slide_count, index } while a presentation is live for me
+  let liveDismissed = false;  // only used while an exam is open, so the overlay never traps a student mid-exam
+
+  function examIsOpen() {
+    const v = $('examView');
+    return !!v && v.style.display !== 'none' && v.style.display !== '';
+  }
+
+  function renderLive() {
+    const ov = $('liveSlideOverlay'); const banner = $('liveSlideBanner');
+    if (!live) { ov.style.display = 'none'; banner.style.display = 'none'; $('liveSlideImg').removeAttribute('src'); liveDismissed = false; return; }
+    const inExam = examIsOpen();
+    $('liveSlideBackBtn').style.display = inExam ? '' : 'none';
+    if (inExam && liveDismissed) { ov.style.display = 'none'; banner.style.display = 'block'; return; }
+    banner.style.display = 'none';
+    ov.style.display = 'flex';
+    $('liveSlideTitle').textContent = live.title;
+    $('liveSlideCounter').textContent = `Slide ${live.index + 1} / ${live.slide_count}`;
+    const url = `/api/presentations/${live.id}/slides/${live.index}`;
+    const img = $('liveSlideImg');
+    if (img.getAttribute('src') !== url) img.src = url;
+    if (live.index + 1 < live.slide_count) { const nx = new Image(); nx.src = `/api/presentations/${live.id}/slides/${live.index + 1}`; }
+  }
+
+  function applyLiveState(st) {
+    if (!st || !st.live) {
+      // Only clear if this event is about the presentation we're showing (or we have none).
+      if (!live || !st || st.id === live.id) { live = null; renderLive(); }
+      else { refreshLive(); }
+      return;
+    }
+    const changed = !live || live.id !== st.id;
+    live = { id: st.id, title: st.title, slide_count: st.slide_count, index: st.index };
+    if (changed) liveDismissed = false;
+    renderLive();
+  }
+
+  async function refreshLive() {
+    try {
+      const r = await api('/api/presentations/live');
+      applyLiveState(r.presentation);
+    } catch (e) { /* offline / not ready — next poll will retry */ }
+  }
+
+  function wireLivePresentation() {
+    if (socket) {
+      socket.on('presentation_state', (st) => {
+        // Events are already scoped by room to presentations meant for me. If two are live
+        // (main admin + my admin) re-ask the server which one wins.
+        if (live && st.id !== live.id && st.live) refreshLive(); else applyLiveState(st);
+      });
+      socket.on('connect', refreshLive); // catches up after a dropped connection / late join
+    }
+    $('liveSlideBackBtn').addEventListener('click', () => { liveDismissed = true; renderLive(); });
+    $('liveSlideBanner').addEventListener('click', () => { liveDismissed = false; renderLive(); });
+    // Block context menu / dragging on the slide; polling is a safety net if the socket drops.
+    $('liveSlideOverlay').addEventListener('contextmenu', (e) => e.preventDefault());
+    setInterval(refreshLive, 20000);
+    refreshLive();
   }
 
   let passwordModalForced = false;

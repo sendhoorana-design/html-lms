@@ -352,3 +352,13 @@ The main admin opens **Admin → Challenges** and clicks **Load starter challeng
 ## Live Monitor presence
 
 Under the Live Monitor table, every student who has an exam assigned is listed as **Active**, **Idle** (no mouse/keyboard/touch for N minutes – choose 1/2/5/10/15 min) or **Offline** (no ping for ~90 s or logged out).
+
+## Live presentations
+
+Admin → **Presentations** tab: upload a `.pptx` or `.pdf` (converted to slide images in your browser, then uploaded), press **Start**, and flip slides with Next/Previous or the arrow keys. Students' screens show a full-screen "LIVE" slide that follows yours instantly (Socket.io, with a 20s polling fallback). Students have no navigation controls. If a student has an exam open, they get a "Back to exam" button and a floating "Live presentation" pill instead of being locked out.
+
+- The main admin's presentation goes to **all** students; a sub-admin's goes to **their own** students only.
+- One live presentation per presenter; starting another ends the previous one.
+- PDF export gives the most faithful slides; PPTX rendering is best-effort (some effects/fonts may differ).
+- Slides are stored in MongoDB (~100–300 KB each). Delete old decks to free space on the Atlas free tier.
+- API: `/api/presentations` (see `server/routes/presentations.js`). No seed or migration needed.
