@@ -179,7 +179,7 @@
 
   function renderLive() {
     const ov = $('liveSlideOverlay'); const banner = $('liveSlideBanner');
-    if (!live) { ov.style.display = 'none'; banner.style.display = 'none'; $('liveSlideImg').removeAttribute('src'); liveDismissed = false; return; }
+    if (!live) { setLiveFs(false); ov.style.display = 'none'; banner.style.display = 'none'; $('liveSlideImg').removeAttribute('src'); liveDismissed = false; return; }
     const inExam = examIsOpen();
     $('liveSlideBackBtn').style.display = inExam ? '' : 'none';
     if (inExam && liveDismissed) { ov.style.display = 'none'; banner.style.display = 'block'; return; }
@@ -213,6 +213,31 @@
     } catch (e) { /* offline / not ready — next poll will retry */ }
   }
 
+
+  // Full screen for the live slide. Android/desktop use the Fullscreen API; iPhone Safari doesn't
+  // allow it for normal pages, so we fall back to an "immersive" mode (hides the top bar and
+  // fills the screen; tap the slide to bring the bar back).
+  function liveFsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function setLiveFs(on) {
+    const ov = $('liveSlideOverlay');
+    if (!on) {
+      ov.classList.remove('ls-immersive');
+      if (liveFsElement()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
+      $('liveSlideFsBtn').textContent = '⛶ Full screen';
+      return;
+    }
+    const req = ov.requestFullscreen || ov.webkitRequestFullscreen;
+    $('liveSlideFsBtn').textContent = '✕ Exit full screen';
+    ov.classList.add('ls-immersive');
+    if (req) {
+      try {
+        const r = req.call(ov);
+        if (r && r.catch) r.catch(() => { /* stay in immersive mode */ });
+      } catch (e) { /* stay in immersive mode */ }
+    }
+    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* optional */ }
+  }
+
   function wireLivePresentation() {
     if (socket) {
       socket.on('presentation_state', (st) => {
@@ -222,6 +247,15 @@
       });
       socket.on('connect', refreshLive); // catches up after a dropped connection / late join
     }
+    $('liveSlideFsBtn').addEventListener('click', () => setLiveFs(!$('liveSlideOverlay').classList.contains('ls-immersive')));
+    // Tap the slide while in immersive mode to peek at the bar (and the exit button).
+    $('liveSlideOverlay').querySelector('.ls-stage').addEventListener('click', () => {
+      const ov = $('liveSlideOverlay');
+      if (ov.classList.contains('ls-immersive') && !liveFsElement()) setLiveFs(false);
+    });
+    const onFsChange = () => { if (!liveFsElement() && $('liveSlideOverlay').classList.contains('ls-immersive') && 'fullscreenEnabled' in document && document.fullscreenEnabled) setLiveFs(false); };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
     $('liveSlideBackBtn').addEventListener('click', () => { liveDismissed = true; renderLive(); });
     $('liveSlideBanner').addEventListener('click', () => { liveDismissed = false; renderLive(); });
     // Block context menu / dragging on the slide; polling is a safety net if the socket drops.

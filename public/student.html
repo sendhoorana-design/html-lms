@@ -62,6 +62,9 @@
   /* ---- Exams / Challenges tabs + challenge player ---- */
   #liveSlideOverlay { position:fixed; inset:0; z-index:9000; background:#000; display:none; flex-direction:column; user-select:none; -webkit-user-select:none; }
   #liveSlideOverlay .ls-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 14px; background:#111; color:#fff; font-size:14px; }
+  #liveSlideOverlay { height:100vh; height:100dvh; }
+  #liveSlideOverlay.ls-immersive .ls-bar { display:none; }
+  #liveSlideOverlay.ls-immersive .ls-stage { padding:0; }
   #liveSlideOverlay .ls-live { background:#dc2626; color:#fff; font-weight:700; font-size:12px; padding:3px 10px; border-radius:999px; animation:lsPulse 1.6s infinite; }
   @keyframes lsPulse { 50% { opacity:.55; } }
   #liveSlideOverlay .ls-stage { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; padding:8px; }
@@ -364,7 +367,7 @@
 <div id="liveSlideOverlay">
   <div class="ls-bar">
     <div><span class="ls-live">● LIVE</span> <span id="liveSlideTitle" style="margin-left:8px;"></span></div>
-    <div><span id="liveSlideCounter"></span> <button class="secondary" id="liveSlideBackBtn" style="display:none; margin-left:10px;">Back to exam</button></div>
+    <div><span id="liveSlideCounter"></span> <button class="secondary" id="liveSlideFsBtn" style="margin-left:10px;">⛶ Full screen</button> <button class="secondary" id="liveSlideBackBtn" style="display:none; margin-left:10px;">Back to exam</button></div>
   </div>
   <div class="ls-stage"><img id="liveSlideImg" alt="Live slide" draggable="false" /></div>
 </div>

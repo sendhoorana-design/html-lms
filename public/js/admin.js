@@ -283,7 +283,7 @@
     $('presPrevBtn').addEventListener('click', () => gotoSlide(presCurrent.index - 1));
     $('presNextBtn').addEventListener('click', () => gotoSlide(presCurrent.index + 1));
     $('presStopBtn').addEventListener('click', () => { if (presCurrent) stopPresentation(presCurrent.id); });
-    $('presFullBtn').addEventListener('click', () => { const el = $('presStage'); if (el.requestFullscreen) el.requestFullscreen(); });
+    $('presFullBtn').addEventListener('click', () => { const el = $('presStage'); const f = el.requestFullscreen || el.webkitRequestFullscreen; if (f) f.call(el); });
     document.addEventListener('keydown', (e) => {
       if (!presCurrent || $('tab-presentations').style.display === 'none') return;
       const tag = (e.target && e.target.tagName) || '';
