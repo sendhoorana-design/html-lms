@@ -234,6 +234,7 @@
     const ov = $('liveSlideOverlay');
     if (!on) {
       ov.classList.remove('ls-immersive');
+      try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* optional */ }
       if (liveFsElement()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
       $('liveSlideFsBtn').textContent = '⛶ Full screen';
       updateLiveGate();
@@ -250,7 +251,12 @@
     }
     if (!req) liveFallbackOk = true;
     updateLiveGate();
-    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* optional */ }
+    try {
+      if (screen.orientation && screen.orientation.lock) {
+        // Lock so rotating can't drop full screen; fall back to the current orientation.
+        screen.orientation.lock('landscape').catch(() => screen.orientation.lock(screen.orientation.type).catch(() => {}));
+      }
+    } catch (e) { /* optional */ }
   }
 
   function wireLivePresentation() {
@@ -270,7 +276,30 @@
       // Fallback (no Fullscreen API) only: tap toggles the top bar.
       if (!fsSupported()) ov.classList.toggle('ls-immersive');
     });
-    const onFsChange = () => { updateLiveGate(); if (!liveFsElement() && $('liveSlideOverlay').classList.contains('ls-immersive') && 'fullscreenEnabled' in document && document.fullscreenEnabled) setLiveFs(false); };
+    // Rotating the phone makes some browsers drop out of full screen. Treat that as part of the
+    // rotation, not as the student leaving: try to re-enter silently, and only show the join
+    // gate again if that fails (a re-entry needs a user gesture on some browsers).
+    let lastRotateAt = 0;
+    const markRotate = () => { lastRotateAt = Date.now(); };
+    window.addEventListener('orientationchange', markRotate);
+    window.addEventListener('resize', markRotate);
+    if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', markRotate);
+    let regraceTimer = null;
+    const onFsChange = () => {
+      const ov = $('liveSlideOverlay');
+      const wantFs = ov.classList.contains('ls-immersive') && live && fsSupported();
+      if (!liveFsElement() && wantFs && Date.now() - lastRotateAt < 2000) {
+        const req = ov.requestFullscreen || ov.webkitRequestFullscreen;
+        let p; try { p = req.call(ov); } catch (e) { p = null; }
+        clearTimeout(regraceTimer);
+        // Give the re-entry a moment before deciding; the slide stays covered meanwhile.
+        regraceTimer = setTimeout(() => { if (!liveFsElement()) setLiveFs(false); else updateLiveGate(); }, 900);
+        if (p && p.catch) p.catch(() => {});
+        return;
+      }
+      updateLiveGate();
+      if (!liveFsElement() && ov.classList.contains('ls-immersive') && fsSupported()) setLiveFs(false);
+    };
     document.addEventListener('fullscreenchange', onFsChange);
     document.addEventListener('webkitfullscreenchange', onFsChange);
     $('liveSlideBackBtn').addEventListener('click', () => { liveDismissed = true; renderLive(); });
