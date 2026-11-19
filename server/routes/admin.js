@@ -15,6 +15,7 @@ const Challenge = require('../models/Challenge');
 const ChallengeProgress = require('../models/ChallengeProgress');
 const { sanitizeChallenge } = require('../utils/challenges');
 const starterChallenges = require('../data/starterChallenges');
+const { newDoc, addReport } = require('../utils/reportPdf');
 
 const router = express.Router();
 router.use(authRequired, requireRole('admin'));
@@ -834,6 +835,93 @@ router.get('/challenges/points', asyncHandler(async (req, res) => {
   let rank = 0; let prev = null;
   rows.forEach((r, i) => { if (r.points !== prev) { rank = i + 1; prev = r.points; } r.rank = r.points > 0 ? rank : null; });
   res.json({ total_challenges: totalChallenges, students: rows });
+}));
+
+// ---------- Submission PDF reports (front page + evaluation schema + code) ----------
+
+function reportData(a, violationCount) {
+  return {
+    student: { full_name: a.student.full_name, username: a.student.username },
+    exam: {
+      title: a.exam.title, instructions: a.exam.instructions || '', checks: a.exam.checks || [],
+      time_limit_minutes: a.exam.time_limit_minutes, rubric: a.exam.rubric || null
+    },
+    status: a.status, started_at: a.started_at, submitted_at: a.submitted_at,
+    violation_count: violationCount || 0,
+    score: typeof a.score === 'number' ? a.score : null,
+    test_results: a.test_results || [],
+    files: (a.files || []).map((f) => ({ name: f.name, content: f.content })),
+    code: a.code || ''
+  };
+}
+
+const safeName = (s) => String(s || 'report').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80);
+
+// One student's report.
+router.get('/assignments/:id/report.pdf', asyncHandler(async (req, res) => {
+  const a = await ExamAssignment.findById(req.params.id)
+    .populate('student', 'username full_name managing_admin')
+    .populate('exam', 'title instructions checks time_limit_minutes rubric')
+    .lean();
+  if (!a || !a.student || !a.exam) return res.status(404).json({ error: 'Not found' });
+  if (!req.isSuperAdmin && (!a.student.managing_admin || a.student.managing_admin.toString() !== req.user.id)) {
+    return res.status(403).json({ error: 'This student is not assigned to you' });
+  }
+  const vCount = await Violation.countDocuments({ assignment: a._id });
+  const doc = newDoc();
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName(a.student.full_name)}_${safeName(a.exam.title)}.pdf"`);
+  doc.pipe(res);
+  addReport(doc, reportData(a, vCount));
+  doc.end();
+}));
+
+// Every submitted student for all exams whose title starts with ?prefix= (e.g. "Brochure
+// Contest") in ONE pdf, sorted by student name. ?status=all also includes unsubmitted ones.
+router.get('/reports/combined.pdf', asyncHandler(async (req, res) => {
+  const prefix = String(req.query.prefix || '').trim();
+  if (!prefix) return res.status(400).json({ error: 'Give an exam title prefix, e.g. "Brochure Contest"' });
+  const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exams = await Exam.find({ title: new RegExp(`^${esc}`, 'i') }).select('title instructions checks time_limit_minutes rubric').lean();
+  if (!exams.length) return res.status(404).json({ error: 'No exams match that title prefix' });
+  const filter = { exam: { $in: exams.map((e) => e._id) } };
+  if (req.query.status !== 'all') filter.status = 'submitted';
+  const assignments = await ExamAssignment.find(filter).populate('student', 'username full_name managing_admin').lean();
+  const examMap = new Map(exams.map((e) => [e._id.toString(), e]));
+  const rows = assignments
+    .filter((a) => a.student && (req.isSuperAdmin || (a.student.managing_admin && a.student.managing_admin.toString() === req.user.id)))
+    .sort((x, y) => (x.student.full_name || '').localeCompare(y.student.full_name || ''));
+  if (!rows.length) return res.status(404).json({ error: 'No submissions yet for these exams' });
+  const counts = await Violation.aggregate([
+    { $match: { assignment: { $in: rows.map((r) => r._id) } } },
+    { $group: { _id: '$assignment', n: { $sum: 1 } } }
+  ]);
+  const cmap = new Map(counts.map((c) => [c._id.toString(), c.n]));
+  const doc = newDoc();
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName(prefix)}_all_submissions.pdf"`);
+  doc.pipe(res);
+  for (const a of rows) {
+    a.exam = examMap.get(a.exam.toString());
+    addReport(doc, reportData(a, cmap.get(a._id.toString())));
+  }
+  doc.end();
+}));
+
+// Optional: set a custom evaluation schema on one exam (see utils/rubric.js for the shape).
+router.put('/exams/:id/rubric', asyncHandler(async (req, res) => {
+  const r = req.body && req.body.rubric;
+  if (r !== null) {
+    const ok = r && Number(r.total_marks) > 0 && Array.isArray(r.components) && r.components.length &&
+      r.components.every((c) => c && typeof c.name === 'string' && Number(c.max) >= 0 && Array.isArray(c.checks) && c.checks.every((i) => Number.isInteger(i) && i >= 0));
+    if (!ok) return res.status(400).json({ error: 'rubric must be {total_marks, components:[{name,max,checks:[index,...]}]} or null' });
+  }
+  const exam = await Exam.findById(req.params.id);
+  if (!exam) return res.status(404).json({ error: 'Exam not found' });
+  if (!req.isSuperAdmin && String(exam.created_by) !== req.user.id) return res.status(403).json({ error: 'You can only edit your own exams' });
+  exam.rubric = r;
+  await exam.save();
+  res.json({ ok: true });
 }));
 
 module.exports = router;

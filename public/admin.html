@@ -226,6 +226,17 @@
         <div class="error-text" id="examError"></div>
       </form>
     </div>
+    <div class="card mt-16" style="max-width:640px;">
+      <h3 style="margin-top:0;">Submission PDF reports</h3>
+      <p class="muted" style="margin-top:0; font-size:13px;">One PDF with, for every submitted student: the front page, the evaluation schema (marks out of 40), the test-case results and the submitted code. Also available per student from the Submissions / View screens.</p>
+      <label>Exam title starts with</label>
+      <input id="reportPrefix" value="Brochure Contest" />
+      <div style="display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+        <button id="reportCombinedBtn" type="button">Download all submissions (PDF)</button>
+        <label style="margin:0; font-size:12px;"><input type="checkbox" id="reportIncludeAll" /> include not-yet-submitted</label>
+        <span class="muted" id="reportMsg"></span>
+      </div>
+    </div>
     <h3 class="mt-16">All exams</h3>
     <table>
       <thead><tr><th>Title</th><th>Time limit</th><th>Proctoring</th><th>Created</th><th></th></tr></thead>
@@ -462,7 +473,7 @@
     <div class="mt-16">
       <div class="flex-between">
         <h4 style="margin:0;">Auto-graded tests <span id="detailScore"></span></h4>
-        <button class="secondary" id="runTestsBtn">Run tests</button>
+        <span><button class="secondary" id="reportPdfBtn">Download PDF report</button> <button class="secondary" id="runTestsBtn">Run tests</button></span>
       </div>
       <div id="detailTestResults" style="max-height:220px; overflow:auto; font-size:13px; margin-top:8px;"></div>
     </div>

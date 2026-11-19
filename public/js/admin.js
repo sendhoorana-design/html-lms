@@ -48,6 +48,7 @@
     $('feedbackCsvBtn').addEventListener('click', downloadFeedbackCsv);
     wireChallengesAdmin();
     wirePresentations();
+    wireReports();
     $('fbSettingsSaveBtn').addEventListener('click', saveFeedbackSettings);
 
     // Main-admin-only UI: creating/importing/removing students, bulk-assigning students to a
@@ -313,6 +314,40 @@
           await loadPresentations();
         }
       } catch (err) { alert(err.message); }
+    });
+  }
+
+  // ---------------- Submission PDF reports ----------------
+  async function downloadPdf(url, fallbackName, msgEl) {
+    if (msgEl) msgEl.textContent = 'Preparing PDF…';
+    try {
+      const res = await fetch(url, { credentials: 'include' });
+      if (res.status === 401) { window.location.href = '/login.html'; return; }
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || 'Could not build the PDF'); }
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = /filename="([^"]+)"/.exec(cd);
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = m ? m[1] : fallbackName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      if (msgEl) msgEl.textContent = 'Downloaded.';
+    } catch (e) {
+      if (msgEl) msgEl.textContent = '';
+      alert(e.message);
+    }
+  }
+
+  function wireReports() {
+    $('reportCombinedBtn').addEventListener('click', () => {
+      const prefix = $('reportPrefix').value.trim();
+      if (!prefix) { alert('Enter the exam title prefix, e.g. Brochure Contest'); return; }
+      const all = $('reportIncludeAll').checked ? '&status=all' : '';
+      downloadPdf(`/api/admin/reports/combined.pdf?prefix=${encodeURIComponent(prefix)}${all}`, 'all_submissions.pdf', $('reportMsg'));
+    });
+    $('reportPdfBtn').addEventListener('click', () => {
+      if (currentDetailId) downloadPdf(`/api/admin/assignments/${currentDetailId}/report.pdf`, 'report.pdf');
     });
   }
 
@@ -1499,6 +1534,7 @@
         <td class="muted">${r.submitted_at ? escapeHtml(r.submitted_at.slice(0,19)) : '—'}</td>
         <td>
           <button class="secondary view-sub-btn" data-id="${r.id}">View</button>
+          <a class="secondary" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; text-decoration:none; color:inherit; font-size:13px;" href="/api/admin/assignments/${r.id}/report.pdf" download>PDF</a>
           ${r.status === 'submitted' ? `<button class="secondary continue-sub-btn" data-id="${r.id}" data-name="${escapeHtml(r.full_name)}">Continue</button>` : ''}
         </td>
       `;
@@ -1573,7 +1609,9 @@
     await loadMonitor();
   });
 
+  let currentDetailId = null;
   async function openDetail(assignmentId) {
+    currentDetailId = assignmentId;
     const data = await api(`/api/admin/assignments/${assignmentId}`);
     $('detailTitle').textContent = data.assignment.exam_title;
     $('detailStudent').innerHTML = `${escapeHtml(data.assignment.full_name)} <span class="muted">(${escapeHtml(data.assignment.username)})</span>`;

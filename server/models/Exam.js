@@ -36,6 +36,9 @@ const examSchema = new mongoose.Schema({
   // Auto-grading checks run against the student's submitted code (see server/utils/grader.js).
   // Empty array = no auto-grading for this exam, just manual review.
   checks: { type: [checkSchema], default: [] },
+  // Optional evaluation schema used by PDF reports (see utils/rubric.js). null = use the built-in
+  // preset for the exam title, or a single "Auto-graded test cases" component.
+  rubric: { type: mongoose.Schema.Types.Mixed, default: null },
   created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   created_at: { type: Date, default: Date.now }
 });

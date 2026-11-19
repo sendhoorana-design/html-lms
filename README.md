@@ -362,3 +362,14 @@ Admin → **Presentations** tab: upload a `.pptx` or `.pdf` (converted to slide 
 - PDF export gives the most faithful slides; PPTX rendering is best-effort (some effects/fonts may differ).
 - Slides are stored in MongoDB (~100–300 KB each). Delete old decks to free space on the Atlas free tier.
 - API: `/api/presentations` (see `server/routes/presentations.js`). No seed or migration needed.
+
+## Submission PDF reports (front page + evaluation + code)
+
+For each submitted exam the admin portal can produce a PDF with: the college front page (modelled on the "Higher Order Assessment" sheet), the **evaluation schema** with marks, the per-test-case results, and the submitted code (line-numbered, one section per file).
+
+- Per student: **Submissions → PDF** (or *Download PDF report* inside View).
+- Whole contest in one PDF: **Exams tab → Submission PDF reports** (enter the title prefix, e.g. `Brochure Contest`).
+- Sub-admins only get their own students' reports.
+- Evaluation schema for the Brochure Contest (auto-score out of 100 converted to **40**): Coding 20 (checks 1-10), Design 10 (CSS font/gradient/radius/shadow/hover), Content & credits 6 (footer, topic, name), Layout & responsiveness 4 (flexbox, @media). Defined in `server/utils/rubric.js`; any exam can get its own via `PUT /api/admin/exams/:id/rubric`.
+- Course details on the front page (faculty, AY, course code...) are constants at the top of `server/utils/reportPdf.js` (override with `REPORT_*` env vars).
+- New dependency: `pdfkit` (installed automatically on deploy).
