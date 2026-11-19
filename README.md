@@ -373,3 +373,7 @@ For each submitted exam the admin portal can produce a PDF with: the college fro
 - Evaluation schema for the Brochure Contest (auto-score out of 100 converted to **40**): Coding 20 (checks 1-10), Design 10 (CSS font/gradient/radius/shadow/hover), Content & credits 6 (footer, topic, name), Layout & responsiveness 4 (flexbox, @media). Defined in `server/utils/rubric.js`; any exam can get its own via `PUT /api/admin/exams/:id/rubric`.
 - Course details on the front page (faculty, AY, course code...) are constants at the top of `server/utils/reportPdf.js` (override with `REPORT_*` env vars).
 - New dependency: `pdfkit` (installed automatically on deploy).
+
+## Extra time that starts on resume
+
+Exams tab → Submissions → **+1 hr on resume** (for submitted or in-progress students). The exam is reopened immediately, but the extra hour only starts counting when the student clicks Resume. API: `POST /api/admin/assignments/:id/grant-time {minutes}` (default 60).

@@ -643,6 +643,22 @@ router.post('/assignments/:id/continue', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Give a student extra time that starts only when THEY resume. Reopens a submitted exam (or
+// keeps an in-progress one open) and records `minutes`; the student route turns that into a
+// fresh `minutes`-long countdown at the moment they open the exam (see GET /assignments/:id).
+router.post('/assignments/:id/grant-time', asyncHandler(async (req, res) => {
+  const a = await loadOwnedAssignment(req, res);
+  if (!a) return;
+  const minutes = parseInt(req.body && req.body.minutes, 10) || 60;
+  if (minutes < 1 || minutes > 600) return res.status(400).json({ error: 'minutes must be between 1 and 600' });
+  const result = await ExamAssignment.updateOne(
+    { _id: a._id, status: { $in: ['submitted', 'in_progress'] } },
+    { $set: { status: 'in_progress', resume_extra_minutes: minutes }, $unset: { submitted_at: '' } }
+  );
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Only submitted or in-progress exams can be given extra time' });
+  res.json({ ok: true, minutes });
+}));
+
 // Re-run auto-grading on demand — useful after editing an exam's checks, or for a submission
 // made before checks existed.
 router.post('/assignments/:id/run-tests', asyncHandler(async (req, res) => {

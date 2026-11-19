@@ -1536,12 +1536,21 @@
           <button class="secondary view-sub-btn" data-id="${r.id}">View</button>
           <a class="secondary" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; text-decoration:none; color:inherit; font-size:13px;" href="/api/admin/assignments/${r.id}/report.pdf" download>PDF</a>
           ${r.status === 'submitted' ? `<button class="secondary continue-sub-btn" data-id="${r.id}" data-name="${escapeHtml(r.full_name)}">Continue</button>` : ''}
+          ${(r.status === 'submitted' || r.status === 'in_progress') ? `<button class="secondary grant-time-btn" data-id="${r.id}" data-name="${escapeHtml(r.full_name)}">+1 hr on resume</button>` : ''}
         </td>
       `;
       tbody.appendChild(tr);
     }
     tbody.querySelectorAll('.view-sub-btn').forEach((btn) => {
       btn.addEventListener('click', () => openDetail(btn.dataset.id));
+    });
+    tbody.querySelectorAll('.grant-time-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm(`Give ${btn.dataset.name} 1 extra hour? It starts only when they click Resume (their exam is reopened now).`)) return;
+        try { await api(`/api/admin/assignments/${btn.dataset.id}/grant-time`, { method: 'POST', body: JSON.stringify({ minutes: 60 }) }); }
+        catch (e) { alert(e.message); return; }
+        await openSubmissionsModal(examId);
+      });
     });
     tbody.querySelectorAll('.continue-sub-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {

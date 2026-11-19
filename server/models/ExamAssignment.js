@@ -41,7 +41,10 @@ const examAssignmentSchema = new mongoose.Schema({
   // 0 = no limit for this student specifically (never auto-lock them), even if the exam itself
   // has a limit. A positive number = a custom limit just for this student. Set by an admin from
   // the assignment detail view, e.g. for a student who needs an accommodation.
-  violation_limit_override: { type: Number, default: null }
+  violation_limit_override: { type: Number, default: null },
+  // Extra time granted by an admin that starts counting only when the student next opens (resumes)
+  // the exam. null = nothing pending. See POST /api/admin/assignments/:id/grant-time.
+  resume_extra_minutes: { type: Number, default: null }
 });
 
 examAssignmentSchema.index({ exam: 1, student: 1 }, { unique: true });

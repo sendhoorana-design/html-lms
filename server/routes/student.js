@@ -108,6 +108,16 @@ router.get('/assignments/:id', asyncHandler(async (req, res) => {
     await assignment.save();
   }
 
+  // Extra time granted by an admin starts now, when the student resumes: make the countdown
+  // (started_at + time limit) end exactly `resume_extra_minutes` from this moment.
+  if (assignment.status === 'in_progress' && assignment.resume_extra_minutes) {
+    const limit = assignment.exam.time_limit_minutes || 0;
+    assignment.started_at = new Date(Date.now() + (assignment.resume_extra_minutes - limit) * 60000);
+    assignment.resume_extra_minutes = null;
+    assignment.last_seen_at = new Date();
+    await assignment.save();
+  }
+
   const violations = readOnly
     ? (await Violation.find({ assignment: assignment._id }).sort({ created_at: -1 }).lean()).map((v) => ({
         id: v._id.toString(),
