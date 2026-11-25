@@ -377,3 +377,7 @@ For each submitted exam the admin portal can produce a PDF with: the college fro
 ## Extra time that starts on resume
 
 Exams tab → Submissions → **+1 hr on resume** (for submitted or in-progress students). The exam is reopened immediately, but the extra hour only starts counting when the student clicks Resume. API: `POST /api/admin/assignments/:id/grant-time {minutes}` (default 60).
+
+## Assignment Tracker (live)
+
+Admin → **Assignment Tracker**: live status of every student's assignment for exams whose title starts with the given text (default "Brochure Contest"). Summary cards (total, submitted, in progress, working now, not started, locked, average score, violations), a progress bar, and a table with status, live countdown of time left, last seen, violations and score. Filter by class / status / name; download CSV. Refreshes every 10 s and instantly on student heartbeat / status / violation events. Sub-admins see only their own students. API: `GET /api/admin/tracker?prefix=...`.

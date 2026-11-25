@@ -91,6 +91,7 @@
     socket.on('violation', () => { loadMonitor(); flashMonitorTab(); });
     socket.on('heartbeat', () => { loadMonitor(); });
     socket.on('status_change', () => { loadMonitor(); });
+    wireTracker(); // after the socket exists so live events can trigger refreshes
 
     // Admins list is needed to render student "Managed by" names and the admin dropdown, so
     // load it before the students table (super admin only — a sub-admin can't call this route).
@@ -351,10 +352,118 @@
     });
   }
 
+
+  // ---------------- Assignment tracker (live) ----------------
+  let trkRows = [];
+  let trkTimer = null;
+  let trkLoading = false;
+  let trkServerSkew = 0; // server clock minus browser clock, so countdowns are right even if clocks differ
+
+  function trkRefreshSoon() {
+    if ($('tab-tracker').style.display === 'none') return;
+    clearTimeout(trkRefreshSoon.t);
+    trkRefreshSoon.t = setTimeout(loadTracker, 800);
+  }
+
+  async function loadTracker() {
+    if (trkLoading) return;
+    trkLoading = true;
+    try {
+      const prefix = $('trkPrefix').value.trim();
+      const data = await api(`/api/admin/tracker?prefix=${encodeURIComponent(prefix)}`);
+      trkRows = data.rows;
+      trkServerSkew = new Date(data.server_time).getTime() - Date.now();
+      const sel = $('trkSection'); const cur = sel.value;
+      sel.innerHTML = '<option value="">All classes</option>' + (data.sections || []).map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      sel.value = (data.sections || []).includes(cur) ? cur : '';
+      renderTracker();
+      $('trkUpdated').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    } catch (e) { $('trkUpdated').textContent = 'Could not refresh: ' + e.message; }
+    finally { trkLoading = false; }
+  }
+
+  function trkFiltered() {
+    const sec = $('trkSection').value; const stt = $('trkStatus').value; const q = $('trkSearch').value.trim().toLowerCase();
+    return trkRows.filter((r) => (!sec || r.section === sec) && (!stt || r.status === stt) &&
+      (!q || (r.full_name || '').toLowerCase().includes(q) || (r.username || '').toLowerCase().includes(q)));
+  }
+
+  function leftText(endsAt) {
+    const ms = new Date(endsAt).getTime() - (Date.now() + trkServerSkew);
+    if (ms <= 0) return '<span style="color:var(--danger);">time over</span>';
+    const m = Math.floor(ms / 60000); const s = Math.floor((ms % 60000) / 1000);
+    return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
+  }
+
+  function renderTracker() {
+    const sec = $('trkSection').value;
+    const scope = trkRows.filter((r) => !sec || r.section === sec);
+    const c = { total: scope.length, not_started: 0, in_progress: 0, working: 0, submitted: 0, locked: 0, v: 0, sum: 0, n: 0 };
+    scope.forEach((r) => {
+      c[r.status] = (c[r.status] || 0) + 1; if (r.online) c.working += 1; c.v += r.violations;
+      if (r.status === 'submitted' && r.score !== null) { c.sum += r.score; c.n += 1; }
+    });
+    const card = (label, val, color) => `<div class="card" style="padding:10px 16px; min-width:110px; margin:0;"><div class="muted" style="font-size:12px;">${label}</div><div style="font-size:22px; font-weight:700; ${color ? 'color:' + color : ''}">${val}</div></div>`;
+    $('trkCards').innerHTML = card('Total', c.total) + card('Submitted', c.submitted, 'var(--accent-2)') + card('In progress', c.in_progress, 'var(--accent)') +
+      card('Working now', c.working, 'var(--accent-2)') + card('Not started', c.not_started, 'var(--muted)') + card('Locked', c.locked, 'var(--danger)') +
+      card('Avg score', c.n ? (Math.round((c.sum / c.n) * 10) / 10) + '%' : '—') + card('Violations', c.v, c.v ? 'var(--warn)' : '');
+    const pct = (n) => (c.total ? (n / c.total) * 100 : 0);
+    $('trkBar').innerHTML = `<div title="Submitted" style="width:${pct(c.submitted)}%; background:var(--accent-2);"></div><div title="In progress" style="width:${pct(c.in_progress)}%; background:var(--accent);"></div><div title="Locked" style="width:${pct(c.locked)}%; background:var(--danger);"></div>`;
+
+    const order = { in_progress: 0, locked: 1, not_started: 2, submitted: 3 };
+    const rows = trkFiltered().sort((a, b) => (order[a.status] - order[b.status]) || String(a.full_name).localeCompare(String(b.full_name)));
+    const body = $('trkBody');
+    if (!rows.length) { body.innerHTML = '<tr><td colspan="9" class="muted">No assignments match.</td></tr>'; return; }
+    body.innerHTML = rows.map((r, i) => {
+      const live = r.status === 'in_progress'
+        ? (r.online ? '<span class="badge submitted">● working now</span>' : '<span class="badge pending">idle / offline</span>') : '';
+      const timeLeft = r.status === 'in_progress' && r.ends_at ? `<span class="trk-left" data-ends="${r.ends_at}">${leftText(r.ends_at)}</span>` : (r.extra_pending ? '+extra time pending' : '—');
+      return `<tr>
+        <td class="muted">${i + 1}</td>
+        <td>${escapeHtml(r.full_name)} <span class="muted">(${escapeHtml(r.username)})</span></td>
+        <td>${escapeHtml(r.section)}</td>
+        <td><span class="badge ${r.status}">${r.status.replace('_', ' ')}</span> ${live}</td>
+        <td>${timeLeft}</td>
+        <td class="muted">${r.last_seen_at ? agoText(r.last_seen_at) : '—'}</td>
+        <td><span class="violation-count ${r.violations === 0 ? 'zero' : 'some'}">${r.violations}</span></td>
+        <td>${scoreBadgeHtml(r.score)}</td>
+        <td><button class="secondary trk-view" data-id="${r.assignment_id}">View</button></td>
+      </tr>`;
+    }).join('');
+    body.querySelectorAll('.trk-view').forEach((b) => b.addEventListener('click', () => openDetail(b.dataset.id)));
+  }
+
+  function tickTrackerClocks() {
+    document.querySelectorAll('#trkBody .trk-left').forEach((el) => { el.innerHTML = leftText(el.dataset.ends); });
+  }
+
+  function downloadTrackerCsv() {
+    const rows = trkFiltered();
+    const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const lines = [['Student', 'Username', 'Class', 'Status', 'Started', 'Submitted', 'Violations', 'Score'].map(esc).join(',')];
+    rows.forEach((r) => lines.push([r.full_name, r.username, r.section, r.status, r.started_at || '', r.submitted_at || '', r.violations, r.score == null ? '' : r.score].map(esc).join(',')));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' }));
+    a.download = 'assignment_tracker.csv'; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  function wireTracker() {
+    $('trkRefreshBtn').addEventListener('click', loadTracker);
+    $('trkCsvBtn').addEventListener('click', downloadTrackerCsv);
+    $('trkPrefix').addEventListener('change', loadTracker);
+    ['trkSection', 'trkStatus'].forEach((id) => $(id).addEventListener('change', renderTracker));
+    $('trkSearch').addEventListener('input', renderTracker);
+    if (socket) { ['heartbeat', 'status_change', 'violation'].forEach((ev) => socket.on(ev, trkRefreshSoon)); }
+    // Poll while the tab is visible; tick countdowns every second without hitting the server.
+    setInterval(() => { if ($('tab-tracker').style.display !== 'none' && document.visibilityState === 'visible') loadTracker(); }, 10000);
+    setInterval(() => { if ($('tab-tracker').style.display !== 'none') tickTrackerClocks(); }, 1000);
+  }
+
   function switchTab(tab) {
     if (tab === 'feedback') loadFeedback();
     if (tab === 'challenges') loadChallengesAdmin();
     if (tab === 'presentations') loadPresentations();
+    if (tab === 'tracker') loadTracker();
     document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tab-panel').forEach((p) => p.style.display = (p.id === `tab-${tab}` ? 'block' : 'none'));
   }

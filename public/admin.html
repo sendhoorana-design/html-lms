@@ -29,6 +29,7 @@
   <button class="tab-btn active" data-tab="monitor">Live Monitor</button>
   <button class="tab-btn" data-tab="students">Students</button>
   <button class="tab-btn" data-tab="exams">Exams</button>
+  <button class="tab-btn" data-tab="tracker">Assignment Tracker</button>
   <button class="tab-btn" data-tab="challenges">Challenges</button>
   <button class="tab-btn" data-tab="presentations">Presentations</button>
   <button class="tab-btn" data-tab="feedback">Feedback</button>
@@ -312,6 +313,30 @@
     <table>
       <thead><tr><th>Rank</th><th>Student</th><th>Username</th><th>Class</th><th>Points</th><th>Solved</th></tr></thead>
       <tbody id="pointsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- ASSIGNMENT TRACKER (live progress of a contest / group of exams) -->
+  <div id="tab-tracker" class="tab-panel" style="display:none;">
+    <div class="flex-between">
+      <h2 style="margin:0;">Assignment Tracker <span class="badge in_progress" id="trkLive" style="font-size:11px;">● LIVE</span></h2>
+      <span class="muted" id="trkUpdated"></span>
+    </div>
+    <p class="muted" style="margin-top:6px;">Live status of every student's assignment: not started, working now, submitted, locked. Updates automatically.</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin:10px 0;">
+      <div><label style="margin:0 0 2px;">Exam title starts with</label><input id="trkPrefix" value="Brochure Contest" style="width:220px;" /></div>
+      <div><label style="margin:0 0 2px;">Class</label><select id="trkSection"><option value="">All classes</option></select></div>
+      <div><label style="margin:0 0 2px;">Status</label>
+        <select id="trkStatus"><option value="">All</option><option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="submitted">Submitted</option><option value="locked">Locked</option></select></div>
+      <div><label style="margin:0 0 2px;">Search</label><input id="trkSearch" placeholder="name / roll no." style="width:170px;" /></div>
+      <button class="secondary" id="trkRefreshBtn" type="button">Refresh now</button>
+      <button class="secondary" id="trkCsvBtn" type="button">Download CSV</button>
+    </div>
+    <div id="trkCards" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;"></div>
+    <div style="height:10px; background:var(--panel-2); border-radius:999px; overflow:hidden; display:flex; margin-bottom:14px;" id="trkBar"></div>
+    <table>
+      <thead><tr><th>#</th><th>Student</th><th>Class</th><th>Status</th><th>Time left</th><th>Last seen</th><th>Violations</th><th>Score</th><th></th></tr></thead>
+      <tbody id="trkBody"></tbody>
     </table>
   </div>
 

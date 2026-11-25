@@ -940,4 +940,54 @@ router.put('/exams/:id/rubric', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------- Assignment tracker (live progress of a group of exams, e.g. a contest) ----------
+// Every assignment for exams whose title starts with ?prefix= (blank = all exams), one row per
+// student, with live-ish fields: status, time left, last seen, violations, score. Sub-admins only
+// see their own students. The admin UI polls this every few seconds and on socket events.
+router.get('/tracker', asyncHandler(async (req, res) => {
+  const prefix = String(req.query.prefix || '').trim();
+  const examFilter = {};
+  if (prefix) examFilter.title = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+  const exams = await Exam.find(examFilter).select('title time_limit_minutes').lean();
+  const examMap = new Map(exams.map((e) => [e._id.toString(), e]));
+  if (!exams.length) return res.json({ rows: [], summary: { total: 0 }, server_time: new Date().toISOString() });
+
+  const assignments = await ExamAssignment.find({ exam: { $in: exams.map((e) => e._id) } })
+    .select('exam student status started_at submitted_at last_seen_at score resume_extra_minutes')
+    .populate('student', 'username full_name section managing_admin').lean();
+  const visible = assignments.filter((a) => a.student &&
+    (req.isSuperAdmin || (a.student.managing_admin && a.student.managing_admin.toString() === req.user.id)));
+  const counts = await Violation.aggregate([
+    { $match: { assignment: { $in: visible.map((a) => a._id) } } },
+    { $group: { _id: '$assignment', n: { $sum: 1 } } }
+  ]);
+  const vmap = new Map(counts.map((c) => [c._id.toString(), c.n]));
+  const now = Date.now();
+  const rows = visible.map((a) => {
+    const ex = examMap.get(a.exam.toString());
+    const limit = ex ? ex.time_limit_minutes : 0;
+    let ends_at = null;
+    if (a.status === 'in_progress' && a.started_at && limit) ends_at = new Date(new Date(a.started_at).getTime() + limit * 60000).toISOString();
+    return {
+      assignment_id: a._id.toString(), exam_id: a.exam.toString(),
+      exam_title: ex ? ex.title : '', username: a.student.username, full_name: a.student.full_name, section: a.student.section || '',
+      status: a.status, started_at: a.started_at, submitted_at: a.submitted_at, last_seen_at: a.last_seen_at,
+      ends_at, extra_pending: !!a.resume_extra_minutes,
+      violations: vmap.get(a._id.toString()) || 0, score: typeof a.score === 'number' ? a.score : null,
+      online: !!(a.status === 'in_progress' && a.last_seen_at && now - new Date(a.last_seen_at).getTime() < 90 * 1000)
+    };
+  }).sort((x, y) => (x.full_name || '').localeCompare(y.full_name || ''));
+
+  const summary = { total: rows.length, not_started: 0, in_progress: 0, working_now: 0, submitted: 0, locked: 0, avg_score: null, violations: 0 };
+  let sum = 0; let n = 0;
+  rows.forEach((r) => {
+    summary[r.status] = (summary[r.status] || 0) + 1;
+    if (r.online) summary.working_now += 1;
+    summary.violations += r.violations;
+    if (r.status === 'submitted' && r.score !== null) { sum += r.score; n += 1; }
+  });
+  if (n) summary.avg_score = Math.round((sum / n) * 10) / 10;
+  res.json({ rows, summary, sections: [...new Set(rows.map((r) => r.section).filter(Boolean))].sort(), server_time: new Date().toISOString() });
+}));
+
 module.exports = router;
