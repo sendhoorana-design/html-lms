@@ -54,17 +54,17 @@ function cellText(doc, text, x, y, w, h, opts = {}) {
   doc.text(String(text), x + 6, ty, { width: w - 12, align: opts.align || 'left' });
 }
 
-function rowHeight(doc, cells, size) {
-  let h = 20;
+function rowHeight(doc, cells, size, minH) {
+  let h = minH || 20;
   cells.forEach((c) => {
     doc.font(c.font || 'Times-Roman').fontSize(size || 10);
-    h = Math.max(h, doc.heightOfString(String(c.text), { width: c.w - 12 }) + 10);
+    h = Math.max(h, doc.heightOfString(String(c.text), { width: c.w - 12 }) + (minH ? 6 : 10));
   });
   return h;
 }
 
-function drawRow(doc, cells, y, size) {
-  const h = rowHeight(doc, cells, size);
+function drawRow(doc, cells, y, size, minH) {
+  const h = rowHeight(doc, cells, size, minH);
   let x = M;
   cells.forEach((c) => { cellText(doc, c.text, x, y, c.w, h, { font: c.font, align: c.align, size, fill: c.fill, color: c.color }); x += c.w; });
   return h;
@@ -224,9 +224,42 @@ function addReport(doc, d) {
   codePages(doc, d);
 }
 
+
+// Compact name list with status, score and marks (one table over as many pages as needed).
+function addScoreList(doc, rows, opts = {}) {
+  const W = (doc.page ? doc.page.width : 842) - 2 * M;
+  const statusText = { submitted: 'Submitted', in_progress: 'In progress', not_started: 'Not started', locked: 'Locked' };
+  const b = 'Times-Bold';
+  const cw = [W * 0.06, W * 0.16, W * 0.30, W * 0.08, W * 0.12, W * 0.10, W * 0.10, W * 0.08];
+  const maxMarks = rows[0] ? rows[0].max_marks : 40;
+  let y;
+  const newPage = (cont) => {
+    doc.addPage();
+    letterhead(doc, `Score List – ${opts.title || 'Contest'}${opts.section ? ' – ' + opts.section : ''}${cont ? ' (contd.)' : ''}`);
+    y = doc.y + 2;
+    y += drawRow(doc, [
+      { text: 'S.No', w: cw[0], font: b, align: 'center', fill: '#D9E2F3' }, { text: 'Register Number', w: cw[1], font: b, fill: '#D9E2F3' },
+      { text: 'Student Name', w: cw[2], font: b, fill: '#D9E2F3' }, { text: 'Class', w: cw[3], font: b, align: 'center', fill: '#D9E2F3' },
+      { text: 'Status', w: cw[4], font: b, fill: '#D9E2F3' }, { text: 'Score /100', w: cw[5], font: b, align: 'center', fill: '#D9E2F3' },
+      { text: `Marks /${maxMarks}`, w: cw[6], font: b, align: 'center', fill: '#D9E2F3' }, { text: 'Viol.', w: cw[7], font: b, align: 'center', fill: '#D9E2F3' }
+    ], y, 9.5, 17);
+  };
+  newPage(false);
+  rows.forEach((r, i) => {
+    const cells = [
+      { text: String(i + 1), w: cw[0], align: 'center' }, { text: r.reg_no || r.username, w: cw[1] }, { text: r.full_name, w: cw[2] },
+      { text: (r.section || '').replace(/^CSE\s*/i, ''), w: cw[3], align: 'center' }, { text: statusText[r.status] || r.status, w: cw[4] },
+      { text: r.score == null ? '—' : String(r.score), w: cw[5], align: 'center', font: b },
+      { text: r.marks == null ? '—' : String(r.marks), w: cw[6], align: 'center', font: b }, { text: String(r.violations || 0), w: cw[7], align: 'center' }
+    ];
+    if (y + rowHeight(doc, cells, 9.5, 17) > doc.page.height - M - 10) newPage(true);
+    y += drawRow(doc, cells, y, 9.5, 17);
+  });
+}
+
 function addPageNumbers(doc) {
   // pdfkit buffered pages are only available when bufferPages is on; we keep it off and number
   // at draw time instead, so nothing to do here. Kept for a future switch to buffered mode.
 }
 
-module.exports = { newDoc, addReport, addPageNumbers, studentFacts };
+module.exports = { newDoc, addReport, addScoreList, addPageNumbers, studentFacts };

@@ -322,7 +322,7 @@
       <h2 style="margin:0;">Assignment Tracker <span class="badge in_progress" id="trkLive" style="font-size:11px;">● LIVE</span></h2>
       <span class="muted" id="trkUpdated"></span>
     </div>
-    <p class="muted" style="margin-top:6px;">Live status of every student's assignment: not started, working now, submitted, locked. Updates automatically.</p>
+    <p class="muted" style="margin-top:6px;">Live name list with each student's status and score (like the class mark list). Updates automatically.</p>
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin:10px 0;">
       <div><label style="margin:0 0 2px;">Exam title starts with</label><input id="trkPrefix" value="Brochure Contest" style="width:220px;" /></div>
       <div><label style="margin:0 0 2px;">Class</label><select id="trkSection"><option value="">All classes</option></select></div>
@@ -331,11 +331,11 @@
       <div><label style="margin:0 0 2px;">Search</label><input id="trkSearch" placeholder="name / roll no." style="width:170px;" /></div>
       <button class="secondary" id="trkRefreshBtn" type="button">Refresh now</button>
       <button class="secondary" id="trkCsvBtn" type="button">Download CSV</button>
+      <button class="secondary" id="trkPdfBtn" type="button">Download name list (PDF)</button>
     </div>
-    <div id="trkCards" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;"></div>
-    <div style="height:10px; background:var(--panel-2); border-radius:999px; overflow:hidden; display:flex; margin-bottom:14px;" id="trkBar"></div>
+    <p id="trkSummary" style="margin:6px 0 10px; font-size:14px;"></p>
     <table>
-      <thead><tr><th>#</th><th>Student</th><th>Class</th><th>Status</th><th>Time left</th><th>Last seen</th><th>Violations</th><th>Score</th><th></th></tr></thead>
+      <thead><tr><th>S.No</th><th>Register Number</th><th>Student Name</th><th>Class</th><th>Status</th><th>Score /100</th><th>Marks /40</th><th>Violations</th><th>Time left</th><th></th></tr></thead>
       <tbody id="trkBody"></tbody>
     </table>
   </div>

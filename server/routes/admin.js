@@ -15,7 +15,8 @@ const Challenge = require('../models/Challenge');
 const ChallengeProgress = require('../models/ChallengeProgress');
 const { sanitizeChallenge } = require('../utils/challenges');
 const starterChallenges = require('../data/starterChallenges');
-const { newDoc, addReport } = require('../utils/reportPdf');
+const { newDoc, addReport, addScoreList } = require('../utils/reportPdf');
+const { resolveRubric } = require('../utils/rubric');
 
 const router = express.Router();
 router.use(authRequired, requireRole('admin'));
@@ -941,16 +942,16 @@ router.put('/exams/:id/rubric', asyncHandler(async (req, res) => {
 }));
 
 // ---------- Assignment tracker (live progress of a group of exams, e.g. a contest) ----------
-// Every assignment for exams whose title starts with ?prefix= (blank = all exams), one row per
-// student, with live-ish fields: status, time left, last seen, violations, score. Sub-admins only
-// see their own students. The admin UI polls this every few seconds and on socket events.
-router.get('/tracker', asyncHandler(async (req, res) => {
+// One row per student for every exam whose title starts with ?prefix= (blank = all exams), sorted
+// by register number, with status / time left / last seen / violations / score / marks. Sub-admins
+// only see their own students. Shared by the JSON endpoint (live table) and the namelist PDF.
+async function buildTracker(req) {
   const prefix = String(req.query.prefix || '').trim();
   const examFilter = {};
   if (prefix) examFilter.title = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
-  const exams = await Exam.find(examFilter).select('title time_limit_minutes').lean();
+  const exams = await Exam.find(examFilter).select('title time_limit_minutes instructions rubric').lean();
   const examMap = new Map(exams.map((e) => [e._id.toString(), e]));
-  if (!exams.length) return res.json({ rows: [], summary: { total: 0 }, server_time: new Date().toISOString() });
+  if (!exams.length) return { rows: [], summary: { total: 0 }, sections: [] };
 
   const assignments = await ExamAssignment.find({ exam: { $in: exams.map((e) => e._id) } })
     .select('exam student status started_at submitted_at last_seen_at score resume_extra_minutes')
@@ -968,15 +969,19 @@ router.get('/tracker', asyncHandler(async (req, res) => {
     const limit = ex ? ex.time_limit_minutes : 0;
     let ends_at = null;
     if (a.status === 'in_progress' && a.started_at && limit) ends_at = new Date(new Date(a.started_at).getTime() + limit * 60000).toISOString();
+    // Register number comes from the contest exam's instructions ("Reg. No.: ..."); the LMS keeps no separate field.
+    const reg_no = ex ? ((ex.instructions || '').match(/Reg\.?\s*No\.?:\s*([A-Za-z0-9]+)/i) || [])[1] || '' : '';
+    const max_marks = ex ? resolveRubric(ex).total_marks : 40;
     return {
-      assignment_id: a._id.toString(), exam_id: a.exam.toString(),
+      assignment_id: a._id.toString(), exam_id: a.exam.toString(), reg_no, max_marks,
+      marks: typeof a.score === 'number' ? Math.round((a.score / 100) * max_marks * 10) / 10 : null,
       exam_title: ex ? ex.title : '', username: a.student.username, full_name: a.student.full_name, section: a.student.section || '',
       status: a.status, started_at: a.started_at, submitted_at: a.submitted_at, last_seen_at: a.last_seen_at,
       ends_at, extra_pending: !!a.resume_extra_minutes,
       violations: vmap.get(a._id.toString()) || 0, score: typeof a.score === 'number' ? a.score : null,
       online: !!(a.status === 'in_progress' && a.last_seen_at && now - new Date(a.last_seen_at).getTime() < 90 * 1000)
     };
-  }).sort((x, y) => (x.full_name || '').localeCompare(y.full_name || ''));
+  }).sort((x, y) => String(x.reg_no || x.username).localeCompare(String(y.reg_no || y.username)));
 
   const summary = { total: rows.length, not_started: 0, in_progress: 0, working_now: 0, submitted: 0, locked: 0, avg_score: null, violations: 0 };
   let sum = 0; let n = 0;
@@ -987,7 +992,27 @@ router.get('/tracker', asyncHandler(async (req, res) => {
     if (r.status === 'submitted' && r.score !== null) { sum += r.score; n += 1; }
   });
   if (n) summary.avg_score = Math.round((sum / n) * 10) / 10;
-  res.json({ rows, summary, sections: [...new Set(rows.map((r) => r.section).filter(Boolean))].sort(), server_time: new Date().toISOString() });
+  return { rows, summary, sections: [...new Set(rows.map((r) => r.section).filter(Boolean))].sort() };
+}
+
+router.get('/tracker', asyncHandler(async (req, res) => {
+  const t = await buildTracker(req);
+  res.json({ ...t, server_time: new Date().toISOString() });
+}));
+
+// Compact score list (name list with status, score and marks) as a PDF; ?section= and ?status= filter it.
+router.get('/tracker/namelist.pdf', asyncHandler(async (req, res) => {
+  const t = await buildTracker(req);
+  let rows = t.rows;
+  if (req.query.section) rows = rows.filter((r) => r.section === req.query.section);
+  if (req.query.status) rows = rows.filter((r) => r.status === req.query.status);
+  if (!rows.length) return res.status(404).json({ error: 'No assignments match' });
+  const doc = newDoc();
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName(req.query.prefix || 'contest')}_namelist_scores.pdf"`);
+  doc.pipe(res);
+  addScoreList(doc, rows, { title: req.query.prefix || 'Contest', section: req.query.section || '' });
+  doc.end();
 }));
 
 module.exports = router;

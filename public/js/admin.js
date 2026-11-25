@@ -398,35 +398,34 @@
   function renderTracker() {
     const sec = $('trkSection').value;
     const scope = trkRows.filter((r) => !sec || r.section === sec);
-    const c = { total: scope.length, not_started: 0, in_progress: 0, working: 0, submitted: 0, locked: 0, v: 0, sum: 0, n: 0 };
+    const c = { total: scope.length, not_started: 0, in_progress: 0, working: 0, submitted: 0, locked: 0, sum: 0, n: 0 };
     scope.forEach((r) => {
-      c[r.status] = (c[r.status] || 0) + 1; if (r.online) c.working += 1; c.v += r.violations;
+      c[r.status] = (c[r.status] || 0) + 1; if (r.online) c.working += 1;
       if (r.status === 'submitted' && r.score !== null) { c.sum += r.score; c.n += 1; }
     });
-    const card = (label, val, color) => `<div class="card" style="padding:10px 16px; min-width:110px; margin:0;"><div class="muted" style="font-size:12px;">${label}</div><div style="font-size:22px; font-weight:700; ${color ? 'color:' + color : ''}">${val}</div></div>`;
-    $('trkCards').innerHTML = card('Total', c.total) + card('Submitted', c.submitted, 'var(--accent-2)') + card('In progress', c.in_progress, 'var(--accent)') +
-      card('Working now', c.working, 'var(--accent-2)') + card('Not started', c.not_started, 'var(--muted)') + card('Locked', c.locked, 'var(--danger)') +
-      card('Avg score', c.n ? (Math.round((c.sum / c.n) * 10) / 10) + '%' : '—') + card('Violations', c.v, c.v ? 'var(--warn)' : '');
-    const pct = (n) => (c.total ? (n / c.total) * 100 : 0);
-    $('trkBar').innerHTML = `<div title="Submitted" style="width:${pct(c.submitted)}%; background:var(--accent-2);"></div><div title="In progress" style="width:${pct(c.in_progress)}%; background:var(--accent);"></div><div title="Locked" style="width:${pct(c.locked)}%; background:var(--danger);"></div>`;
+    $('trkSummary').innerHTML = `<b>${c.total}</b> students &nbsp;·&nbsp; <b style="color:var(--accent-2)">${c.submitted}</b> submitted &nbsp;·&nbsp; <b style="color:var(--accent)">${c.in_progress}</b> in progress (${c.working} working now) &nbsp;·&nbsp; <b>${c.not_started}</b> not started` +
+      (c.locked ? ` &nbsp;·&nbsp; <b style="color:var(--danger)">${c.locked}</b> locked` : '') +
+      (c.n ? ` &nbsp;·&nbsp; average score <b>${Math.round((c.sum / c.n) * 10) / 10}</b>` : '');
+    const maxMarks = (scope[0] && scope[0].max_marks) || 40;
+    document.querySelector('#tab-tracker thead th:nth-child(7)').textContent = `Marks /${maxMarks}`;
 
-    const order = { in_progress: 0, locked: 1, not_started: 2, submitted: 3 };
-    const rows = trkFiltered().sort((a, b) => (order[a.status] - order[b.status]) || String(a.full_name).localeCompare(String(b.full_name)));
+    const rows = trkFiltered(); // already in register-number order from the server
     const body = $('trkBody');
-    if (!rows.length) { body.innerHTML = '<tr><td colspan="9" class="muted">No assignments match.</td></tr>'; return; }
+    if (!rows.length) { body.innerHTML = '<tr><td colspan="10" class="muted">No assignments match.</td></tr>'; return; }
+    const statusLabel = { submitted: 'Submitted', in_progress: 'In progress', not_started: 'Not started', locked: 'Locked' };
     body.innerHTML = rows.map((r, i) => {
-      const live = r.status === 'in_progress'
-        ? (r.online ? '<span class="badge submitted">● working now</span>' : '<span class="badge pending">idle / offline</span>') : '';
+      const dot = r.status === 'in_progress' ? (r.online ? ' <span title="working now" style="color:var(--accent-2);">●</span>' : ' <span title="idle / offline" style="color:var(--warn);">●</span>') : '';
       const timeLeft = r.status === 'in_progress' && r.ends_at ? `<span class="trk-left" data-ends="${r.ends_at}">${leftText(r.ends_at)}</span>` : (r.extra_pending ? '+extra time pending' : '—');
       return `<tr>
         <td class="muted">${i + 1}</td>
-        <td>${escapeHtml(r.full_name)} <span class="muted">(${escapeHtml(r.username)})</span></td>
-        <td>${escapeHtml(r.section)}</td>
-        <td><span class="badge ${r.status}">${r.status.replace('_', ' ')}</span> ${live}</td>
-        <td>${timeLeft}</td>
-        <td class="muted">${r.last_seen_at ? agoText(r.last_seen_at) : '—'}</td>
+        <td>${escapeHtml(r.reg_no || r.username)}</td>
+        <td>${escapeHtml(r.full_name)}</td>
+        <td>${escapeHtml((r.section || '').replace(/^CSE\s*/i, ''))}</td>
+        <td><span class="badge ${r.status}">${statusLabel[r.status] || r.status}</span>${dot}</td>
+        <td>${r.score == null ? '<span class="muted">—</span>' : `<b>${r.score}</b>`}</td>
+        <td>${r.marks == null ? '<span class="muted">—</span>' : `<b>${r.marks}</b>`}</td>
         <td><span class="violation-count ${r.violations === 0 ? 'zero' : 'some'}">${r.violations}</span></td>
-        <td>${scoreBadgeHtml(r.score)}</td>
+        <td>${timeLeft}</td>
         <td><button class="secondary trk-view" data-id="${r.assignment_id}">View</button></td>
       </tr>`;
     }).join('');
@@ -440,16 +439,24 @@
   function downloadTrackerCsv() {
     const rows = trkFiltered();
     const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-    const lines = [['Student', 'Username', 'Class', 'Status', 'Started', 'Submitted', 'Violations', 'Score'].map(esc).join(',')];
-    rows.forEach((r) => lines.push([r.full_name, r.username, r.section, r.status, r.started_at || '', r.submitted_at || '', r.violations, r.score == null ? '' : r.score].map(esc).join(',')));
+    const statusLabel = { submitted: 'Submitted (completed)', in_progress: 'In progress', not_started: 'Not started', locked: 'Locked' };
+    const maxMarks = (rows[0] && rows[0].max_marks) || 40;
+    const lines = [['Register Number', 'Student Name', 'Class', 'Status', 'Score /100', `Marks /${maxMarks}`, 'Violations'].map(esc).join(',')];
+    rows.forEach((r) => lines.push([r.reg_no || r.username, r.full_name, r.section, statusLabel[r.status] || r.status, r.score == null ? '' : r.score, r.marks == null ? '' : r.marks, r.violations].map(esc).join(',')));
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' }));
-    a.download = 'assignment_tracker.csv'; document.body.appendChild(a); a.click(); a.remove();
+    a.download = 'contest_namelist_scores.csv'; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  function trackerPdf() {
+    const q = `prefix=${encodeURIComponent($('trkPrefix').value.trim())}&section=${encodeURIComponent($('trkSection').value)}&status=${encodeURIComponent($('trkStatus').value)}`;
+    downloadPdf(`/api/admin/tracker/namelist.pdf?${q}`, 'namelist_scores.pdf', $('trkUpdated'));
   }
 
   function wireTracker() {
     $('trkRefreshBtn').addEventListener('click', loadTracker);
     $('trkCsvBtn').addEventListener('click', downloadTrackerCsv);
+    $('trkPdfBtn').addEventListener('click', trackerPdf);
     $('trkPrefix').addEventListener('change', loadTracker);
     ['trkSection', 'trkStatus'].forEach((id) => $(id).addEventListener('change', renderTracker));
     $('trkSearch').addEventListener('input', renderTracker);
