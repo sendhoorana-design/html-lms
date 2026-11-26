@@ -8,6 +8,9 @@ const userSchema = new mongoose.Schema({
   // Free-text class/section label (e.g. "CSE A", "CSE-D 2026-2027") — students only. Lets exams
   // be assigned to a whole class at once instead of picking students off a flat list.
   section: { type: String, default: '', trim: true },
+  // College register number (e.g. 814726104001) — students only. Shown and searchable in the admin
+  // portal and printed on reports; a student may also log in with it instead of their username.
+  register_no: { type: String, default: '', trim: true, index: true },
   // True right after a CSV import, or whenever an admin forces it — the student must set a new
   // password before they can do anything else.
   must_change_password: { type: Boolean, default: false },

@@ -117,6 +117,7 @@
     <div class="flex-between mt-16" style="flex-wrap:wrap; gap:8px;">
       <h3 style="margin:0;">All students</h3>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <input id="studentsSearch" placeholder="Search name / register no. / username" style="width:250px;" />
         <label class="muted" style="margin:0; white-space:nowrap;">Filter by class</label>
         <select id="studentsClassFilter" style="width:auto;">
           <option value="">All classes</option>
@@ -131,7 +132,7 @@
       </div>
     </div>
     <table>
-      <thead><tr><th>Name</th><th>Username</th><th>Class</th><th id="managedByHeader" style="display:none;">Managed by</th><th>Password</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Register No.</th><th>Username</th><th>Class</th><th id="managedByHeader" style="display:none;">Managed by</th><th>Password</th><th>Created</th><th></th></tr></thead>
       <tbody id="studentsBody"></tbody>
     </table>
   </div>
@@ -235,6 +236,7 @@
       <div style="display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap;">
         <button id="reportCombinedBtn" type="button">Download all submissions (PDF)</button>
         <label style="margin:0; font-size:12px;"><input type="checkbox" id="reportIncludeAll" /> include not-yet-submitted</label>
+        <label style="margin:0; font-size:12px;"><input type="checkbox" id="reportIncludeOutput" checked /> include rendered output (captured in this browser first)</label>
         <span class="muted" id="reportMsg"></span>
       </div>
     </div>
@@ -328,7 +330,7 @@
       <div><label style="margin:0 0 2px;">Class</label><select id="trkSection"><option value="">All classes</option></select></div>
       <div><label style="margin:0 0 2px;">Status</label>
         <select id="trkStatus"><option value="">All</option><option value="not_started">Not started</option><option value="in_progress">In progress</option><option value="submitted">Submitted</option><option value="locked">Locked</option></select></div>
-      <div><label style="margin:0 0 2px;">Search</label><input id="trkSearch" placeholder="name / roll no." style="width:170px;" /></div>
+      <div><label style="margin:0 0 2px;">Search</label><input id="trkSearch" placeholder="name / register no." style="width:170px;" /></div>
       <button class="secondary" id="trkRefreshBtn" type="button">Refresh now</button>
       <button class="secondary" id="trkCsvBtn" type="button">Download CSV</button>
       <button class="secondary" id="trkPdfBtn" type="button">Download name list (PDF)</button>
@@ -498,7 +500,7 @@
     <div class="mt-16">
       <div class="flex-between">
         <h4 style="margin:0;">Auto-graded tests <span id="detailScore"></span></h4>
-        <span><button class="secondary" id="reportPdfBtn">Download PDF report</button> <button class="secondary" id="runTestsBtn">Run tests</button></span>
+        <span><span class="muted" id="detailReportMsg" style="font-size:12px;"></span> <button class="secondary" id="reportPdfBtn">Download PDF report</button> <button class="secondary" id="runTestsBtn">Run tests</button></span>
       </div>
       <div id="detailTestResults" style="max-height:220px; overflow:auto; font-size:13px; margin-top:8px;"></div>
     </div>

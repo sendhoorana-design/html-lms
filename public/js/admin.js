@@ -62,6 +62,7 @@
     $('superAdminStudentControls').style.display = isSuperAdmin ? 'inline-flex' : 'none';
 
     $('addStudentForm').addEventListener('submit', onAddStudent);
+    $('studentsSearch').addEventListener('input', renderStudentsTable);
     $('studentsClassFilter').addEventListener('change', (e) => {
       studentsClassFilterValue = e.target.value;
       renderStudentsTable();
@@ -318,6 +319,68 @@
     });
   }
 
+  // ---------------- Output screenshots for the PDF reports ----------------
+  // The student's page is rendered in a hidden iframe in THIS browser (sandboxed with no script
+  // permission, and scripts/inline handlers stripped as a second layer), screenshotted with
+  // html2canvas and uploaded; the server then embeds it in the PDF. Student code never runs.
+  const OUT_W = 1280;
+  const OUT_MAX_H = 2400;
+
+  function sanitizeForCapture(html) {
+    const doc = new DOMParser().parseFromString(html || '', 'text/html');
+    doc.querySelectorAll('script, iframe, frame, object, embed, base, meta[http-equiv]').forEach((n) => n.remove());
+    doc.querySelectorAll('*').forEach((el) => {
+      Array.from(el.attributes).forEach((a) => {
+        const n = a.name.toLowerCase(); const v = (a.value || '').trim().toLowerCase();
+        if (n.startsWith('on') || (['href', 'src', 'action', 'formaction', 'xlink:href'].includes(n) && v.startsWith('javascript:'))) el.removeAttribute(a.name);
+      });
+    });
+    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  }
+
+  async function renderHtmlToJpeg(html) {
+    await loadScript(H2C_SRC);
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-same-origin'); // same-origin only so we can read it; NO allow-scripts
+    frame.style.cssText = `position:fixed;left:-20000px;top:0;width:${OUT_W}px;height:900px;border:0;background:#fff;`;
+    document.body.appendChild(frame);
+    try {
+      await new Promise((resolve) => { frame.onload = resolve; frame.srcdoc = sanitizeForCapture(html); });
+      const d = frame.contentDocument;
+      // Give images/fonts a moment (but never hang on a dead image URL).
+      const imgs = Array.from(d.images || []).filter((i) => !i.complete);
+      await Promise.race([Promise.all(imgs.map((i) => new Promise((r) => { i.onload = i.onerror = r; }))), new Promise((r) => setTimeout(r, 4000))]);
+      if (d.fonts && d.fonts.ready) { await Promise.race([d.fonts.ready, new Promise((r) => setTimeout(r, 1500))]); }
+      await new Promise((r) => setTimeout(r, 150));
+      const root = d.documentElement;
+      const fullH = Math.max(root.scrollHeight, d.body ? d.body.scrollHeight : 0, 300);
+      const h = Math.min(fullH, OUT_MAX_H);
+      const canvas = await window.html2canvas(root, { width: OUT_W, height: h, windowWidth: OUT_W, windowHeight: 900, scale: 1, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      let q = 0.72; let url = canvas.toDataURL('image/jpeg', q);
+      while (url.length * 0.75 > 2.4 * 1024 * 1024 && q > 0.3) { q -= 0.1; url = canvas.toDataURL('image/jpeg', q); }
+      return { image: url, width: canvas.width, height: canvas.height, truncated: fullH > OUT_MAX_H };
+    } finally {
+      frame.remove();
+    }
+  }
+
+  async function captureAssignmentOutput(assignmentId) {
+    const detail = await api(`/api/admin/assignments/${assignmentId}`);
+    const out = await renderHtmlToJpeg(detail.code || '');
+    await api(`/api/admin/assignments/${assignmentId}/output`, { method: 'PUT', body: JSON.stringify(out) });
+  }
+
+  // Captures every submitted assignment that has no up-to-date screenshot. query = "prefix=..." or "assignment_id=...".
+  async function ensureOutputs(query, onProgress) {
+    const st = await api(`/api/admin/outputs/status?${query}`);
+    let ok = 0; let failed = 0;
+    for (let i = 0; i < st.rows.length; i++) {
+      if (onProgress) onProgress(`Capturing output ${i + 1} of ${st.rows.length} (${st.rows[i].full_name})…`);
+      try { await captureAssignmentOutput(st.rows[i].assignment_id); ok += 1; } catch (e) { failed += 1; }
+    }
+    return { needed: st.rows.length, ok, failed };
+  }
+
   // ---------------- Submission PDF reports ----------------
   async function downloadPdf(url, fallbackName, msgEl) {
     if (msgEl) msgEl.textContent = 'Preparing PDF…';
@@ -340,18 +403,35 @@
     }
   }
 
+  async function downloadStudentReport(assignmentId, msgEl) {
+    if (!$('reportIncludeOutput') || $('reportIncludeOutput').checked) {
+      try {
+        const r = await ensureOutputs(`assignment_id=${encodeURIComponent(assignmentId)}`, (t) => { if (msgEl) msgEl.textContent = t; });
+        if (r.failed && msgEl) msgEl.textContent = 'Output could not be captured; the report will say so.';
+      } catch (e) { /* fall through: report still downloads without the screenshot */ }
+    }
+    await downloadPdf(`/api/admin/assignments/${assignmentId}/report.pdf`, 'report.pdf', msgEl);
+  }
+
   function wireReports() {
-    $('reportCombinedBtn').addEventListener('click', () => {
+    $('reportCombinedBtn').addEventListener('click', async () => {
       const prefix = $('reportPrefix').value.trim();
       if (!prefix) { alert('Enter the exam title prefix, e.g. Brochure Contest'); return; }
       const all = $('reportIncludeAll').checked ? '&status=all' : '';
-      downloadPdf(`/api/admin/reports/combined.pdf?prefix=${encodeURIComponent(prefix)}${all}`, 'all_submissions.pdf', $('reportMsg'));
+      const msg = $('reportMsg'); const btn = $('reportCombinedBtn');
+      btn.disabled = true;
+      try {
+        if ($('reportIncludeOutput').checked) {
+          const r = await ensureOutputs(`prefix=${encodeURIComponent(prefix)}`, (t) => { msg.textContent = t; });
+          if (r.failed) msg.textContent = `${r.failed} output(s) could not be captured; those reports will say so.`;
+        }
+        await downloadPdf(`/api/admin/reports/combined.pdf?prefix=${encodeURIComponent(prefix)}${all}`, 'all_submissions.pdf', msg);
+      } finally { btn.disabled = false; }
     });
     $('reportPdfBtn').addEventListener('click', () => {
-      if (currentDetailId) downloadPdf(`/api/admin/assignments/${currentDetailId}/report.pdf`, 'report.pdf');
+      if (currentDetailId) downloadStudentReport(currentDetailId, $('detailReportMsg'));
     });
   }
-
 
   // ---------------- Assignment tracker (live) ----------------
   let trkRows = [];
@@ -385,7 +465,7 @@
   function trkFiltered() {
     const sec = $('trkSection').value; const stt = $('trkStatus').value; const q = $('trkSearch').value.trim().toLowerCase();
     return trkRows.filter((r) => (!sec || r.section === sec) && (!stt || r.status === stt) &&
-      (!q || (r.full_name || '').toLowerCase().includes(q) || (r.username || '').toLowerCase().includes(q)));
+      (!q || (r.full_name || '').toLowerCase().includes(q) || (r.username || '').toLowerCase().includes(q) || (r.reg_no || '').toLowerCase().includes(q)));
   }
 
   function leftText(endsAt) {
@@ -792,9 +872,11 @@
   }
 
   function renderStudentsTable() {
-    const visible = studentsClassFilterValue
+    const q = ($('studentsSearch').value || '').trim().toLowerCase();
+    const visible = (studentsClassFilterValue
       ? students.filter((s) => s.section === studentsClassFilterValue)
-      : students;
+      : students
+    ).filter((s) => !q || [s.full_name, s.username, s.register_no].some((v) => (v || '').toLowerCase().includes(q)));
 
     const tbody = $('studentsBody');
     tbody.innerHTML = '';
@@ -802,6 +884,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${escapeHtml(s.full_name)}</td>
+        <td>${s.register_no ? escapeHtml(s.register_no) : '<span class="muted">—</span>'}</td>
         <td>${escapeHtml(s.username)}</td>
         <td>${s.section ? escapeHtml(s.section) : '<span class="muted">—</span>'}</td>
         ${isSuperAdmin ? `<td>${managerSelectHtml(s)}</td>` : ''}
@@ -1650,7 +1733,7 @@
         <td class="muted">${r.submitted_at ? escapeHtml(r.submitted_at.slice(0,19)) : '—'}</td>
         <td>
           <button class="secondary view-sub-btn" data-id="${r.id}">View</button>
-          <a class="secondary" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; text-decoration:none; color:inherit; font-size:13px;" href="/api/admin/assignments/${r.id}/report.pdf" download>PDF</a>
+          <button class="secondary pdf-sub-btn" data-id="${r.id}">PDF</button>
           ${r.status === 'submitted' ? `<button class="secondary continue-sub-btn" data-id="${r.id}" data-name="${escapeHtml(r.full_name)}">Continue</button>` : ''}
           ${(r.status === 'submitted' || r.status === 'in_progress') ? `<button class="secondary grant-time-btn" data-id="${r.id}" data-name="${escapeHtml(r.full_name)}">+1 hr on resume</button>` : ''}
         </td>
@@ -1659,6 +1742,12 @@
     }
     tbody.querySelectorAll('.view-sub-btn').forEach((btn) => {
       btn.addEventListener('click', () => openDetail(btn.dataset.id));
+    });
+    tbody.querySelectorAll('.pdf-sub-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const old = btn.textContent; btn.disabled = true; btn.textContent = '…';
+        try { await downloadStudentReport(btn.dataset.id, null); } finally { btn.disabled = false; btn.textContent = old; }
+      });
     });
     tbody.querySelectorAll('.grant-time-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {

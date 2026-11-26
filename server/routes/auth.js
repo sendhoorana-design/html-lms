@@ -11,7 +11,8 @@ router.post('/login', asyncHandler(async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
-  const user = await User.findOne({ username });
+  // Students may sign in with their register number instead of their username.
+  const user = (await User.findOne({ username })) || (await User.findOne({ register_no: String(username).trim(), role: 'student' }));
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }

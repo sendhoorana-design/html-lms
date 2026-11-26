@@ -381,3 +381,11 @@ Exams tab → Submissions → **+1 hr on resume** (for submitted or in-progress 
 ## Assignment Tracker (live)
 
 Admin → **Assignment Tracker**: a live name list (register number, name, class, status, score /100, marks /40, violations, time left) for exams whose title starts with the given text (default "Brochure Contest"), sorted by register number. Filter by class / status / name; download CSV or a PDF name list. Refreshes every 10 s and instantly on student heartbeat / status / violation events. Sub-admins see only their own students. API: `GET /api/admin/tracker?prefix=...`, `GET /api/admin/tracker/namelist.pdf`.
+
+## Register numbers
+
+Students have an optional `register_no` (e.g. 814726104001). It is shown and searchable in **Students** (search box + column), the Assignment Tracker and the PDF reports, and a student can log in with it instead of their username. Bulk-set (main admin): `PUT /api/admin/students/register-numbers {rows:[{id|username, register_no}]}`; also accepted by `POST /api/admin/students`.
+
+## Output screenshot in PDF reports
+
+Each report now has an **Output (rendered web page)** page between the evaluation and the code. The page is rendered in the *admin's browser* (hidden iframe with scripts disabled, then screenshotted) and uploaded, so the server never runs student code. It happens automatically when you click **PDF** (per student) or **Download all submissions (PDF)**: any submitted student without an up-to-date screenshot is captured first (about 2-3 s each), re-submissions are detected and re-captured. Untick "include rendered output" to skip. Long pages are capped at 2400 px tall and shrunk to fit at most two report pages. Static HTML/CSS is rendered faithfully; JavaScript-driven content is not (scripts are not run), and external images that block cross-site loading may be missing.

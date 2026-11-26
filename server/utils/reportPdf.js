@@ -82,7 +82,7 @@ const fmtDate = (d) => {
 // ("Reg. No.: 8147...", 'YOUR BROCHURE TOPIC: "..."'), falling back to the LMS fields.
 function studentFacts(d) {
   const ins = d.exam.instructions || '';
-  const reg = (ins.match(/Reg\.?\s*No\.?:\s*([A-Za-z0-9]+)/i) || [])[1] || d.student.username;
+  const reg = d.student.register_no || (ins.match(/Reg\.?\s*No\.?:\s*([A-Za-z0-9]+)/i) || [])[1] || d.student.username;
   const topic = (ins.match(/TOPIC:\s*"([^"]+)"/i) || [])[1] || d.exam.title;
   return { reg, topic };
 }
@@ -176,6 +176,51 @@ function evaluationPage(doc, d, ev) {
   doc.y = y;
 }
 
+
+// The rendered page ("output") as a screenshot, scaled to the page width and split over as many
+// pages as it needs. If no capture exists the report says so instead of leaving a gap.
+function outputPages(doc, d) {
+  const W = doc.page.width - 2 * M;
+  const o = d.output;
+  doc.addPage();
+  letterhead(doc, 'Output (rendered web page)');
+  doc.font('Times-Bold').fontSize(10.5).fillColor('#000')
+    .text(`${d.student.full_name}  |  ${d.exam.title}`, M, doc.y, { width: W });
+  let y = doc.y + 6;
+  if (!o || !o.data || !o.width || !o.height) {
+    doc.font('Times-Italic').fontSize(11).fillColor('#555')
+      .text('Output screenshot not available for this submission (it is captured from the admin portal before the report is downloaded).', M, y, { width: W });
+    return;
+  }
+  // Fit the screenshot to the page width, but shrink long pages so they never take more than
+  // two report pages (a full-size 2400px capture would otherwise need four).
+  const bottom = doc.page.height - M - 12;
+  const perPage = bottom - y;                       // usable height on a page below the letterhead
+  const scale = Math.min(W / o.width, (2 * perPage - 6) / o.height);
+  const drawW = o.width * scale;
+  const x0 = M + (W - drawW) / 2;                   // centred when shrunk
+  const totalH = o.height * scale;
+  let shown = 0; // points of the scaled image already drawn
+  let endY = y;
+  while (shown < totalH - 0.5) {
+    const avail = bottom - y;
+    const sliceH = Math.min(avail, totalH - shown);
+    doc.save();
+    doc.rect(x0, y, drawW, sliceH).clip();
+    doc.image(o.data, x0, y - shown, { width: drawW });
+    doc.restore();
+    doc.rect(x0, y, drawW, sliceH).lineWidth(0.6).strokeColor('#999').stroke();
+    shown += sliceH;
+    endY = y + sliceH;
+    if (shown < totalH - 0.5) {
+      doc.addPage(); letterhead(doc, 'Output (rendered web page) (contd.)'); y = doc.y + 2;
+    }
+  }
+  if (o.truncated) {
+    doc.font('Times-Italic').fontSize(9).fillColor('#555').text('Long page: only the top part of the page is shown.', M, Math.min(endY + 4, bottom), { width: W });
+  }
+}
+
 function codePages(doc, d) {
   const W = doc.page.width - 2 * M;
   const files = d.files && d.files.length ? d.files : [{ name: 'index.html', content: d.code || '' }];
@@ -221,6 +266,7 @@ function addReport(doc, d) {
   const ev = evaluate(d.exam, d.test_results);
   frontPage(doc, d, ev);
   evaluationPage(doc, d, ev);
+  outputPages(doc, d);
   codePages(doc, d);
 }
 

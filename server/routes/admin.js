@@ -17,6 +17,7 @@ const { sanitizeChallenge } = require('../utils/challenges');
 const starterChallenges = require('../data/starterChallenges');
 const { newDoc, addReport, addScoreList } = require('../utils/reportPdf');
 const { resolveRubric } = require('../utils/rubric');
+const AssignmentOutput = require('../models/AssignmentOutput');
 
 const router = express.Router();
 router.use(authRequired, requireRole('admin'));
@@ -53,6 +54,7 @@ router.get('/students', asyncHandler(async (req, res) => {
     id: s._id.toString(),
     username: s.username,
     full_name: s.full_name,
+    register_no: s.register_no || '',
     section: s.section || '',
     managing_admin: s.managing_admin ? s.managing_admin.toString() : null,
     must_change_password: !!s.must_change_password,
@@ -63,8 +65,26 @@ router.get('/students', asyncHandler(async (req, res) => {
 // Creating, bulk-importing, and removing student accounts is a main-admin-only action — a
 // sub-admin's students must come from the main admin (see /students/:id/manager below), not be
 // self-created.
+// Bulk-set register numbers: { rows: [ { id | username, register_no } ] } (main admin only).
+router.put('/students/register-numbers', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const rows = req.body && req.body.rows;
+  if (!Array.isArray(rows) || !rows.length || rows.length > 2000) return res.status(400).json({ error: 'rows must be a non-empty array (max 2000)' });
+  const out = { updated: 0, not_found: [], errors: [] };
+  for (const r of rows) {
+    const reg = String((r && r.register_no) || '').trim();
+    if (!/^[A-Za-z0-9]{4,30}$/.test(reg)) { out.errors.push({ row: r, error: 'register_no must be 4-30 letters/digits' }); continue; }
+    const filter = { role: 'student' };
+    if (r.id) filter._id = r.id; else if (r.username) filter.username = r.username; else { out.errors.push({ row: r, error: 'id or username required' }); continue; }
+    try {
+      const result = await User.updateOne(filter, { $set: { register_no: reg } });
+      if (result.matchedCount) out.updated += 1; else out.not_found.push(r.id || r.username);
+    } catch (e) { out.errors.push({ row: r, error: e.message }); }
+  }
+  res.json(out);
+}));
+
 router.post('/students', requireSuperAdmin, asyncHandler(async (req, res) => {
-  const { username, password, full_name, section } = req.body;
+  const { username, password, full_name, section, register_no } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
   const existing = await User.findOne({ username });
@@ -76,7 +96,8 @@ router.post('/students', requireSuperAdmin, asyncHandler(async (req, res) => {
     password_hash: hash,
     role: 'student',
     full_name: full_name || username,
-    section: (section || '').trim()
+    section: (section || '').trim(),
+    register_no: String(register_no || '').trim()
   });
   res.status(201).json({ id: user._id.toString(), username: user.username, full_name: user.full_name, section: user.section });
 }));
@@ -858,7 +879,7 @@ router.get('/challenges/points', asyncHandler(async (req, res) => {
 
 function reportData(a, violationCount) {
   return {
-    student: { full_name: a.student.full_name, username: a.student.username },
+    student: { full_name: a.student.full_name, username: a.student.username, register_no: a.student.register_no || '' },
     exam: {
       title: a.exam.title, instructions: a.exam.instructions || '', checks: a.exam.checks || [],
       time_limit_minutes: a.exam.time_limit_minutes, rubric: a.exam.rubric || null
@@ -877,7 +898,7 @@ const safeName = (s) => String(s || 'report').replace(/[^A-Za-z0-9._-]+/g, '_').
 // One student's report.
 router.get('/assignments/:id/report.pdf', asyncHandler(async (req, res) => {
   const a = await ExamAssignment.findById(req.params.id)
-    .populate('student', 'username full_name managing_admin')
+    .populate('student', 'username full_name managing_admin register_no')
     .populate('exam', 'title instructions checks time_limit_minutes rubric')
     .lean();
   if (!a || !a.student || !a.exam) return res.status(404).json({ error: 'Not found' });
@@ -885,11 +906,12 @@ router.get('/assignments/:id/report.pdf', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'This student is not assigned to you' });
   }
   const vCount = await Violation.countDocuments({ assignment: a._id });
+  const out = await AssignmentOutput.findOne({ assignment: a._id }).lean();
   const doc = newDoc();
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${safeName(a.student.full_name)}_${safeName(a.exam.title)}.pdf"`);
   doc.pipe(res);
-  addReport(doc, reportData(a, vCount));
+  addReport(doc, { ...reportData(a, vCount), output: out || null });
   doc.end();
 }));
 
@@ -903,7 +925,7 @@ router.get('/reports/combined.pdf', asyncHandler(async (req, res) => {
   if (!exams.length) return res.status(404).json({ error: 'No exams match that title prefix' });
   const filter = { exam: { $in: exams.map((e) => e._id) } };
   if (req.query.status !== 'all') filter.status = 'submitted';
-  const assignments = await ExamAssignment.find(filter).populate('student', 'username full_name managing_admin').lean();
+  const assignments = await ExamAssignment.find(filter).populate('student', 'username full_name managing_admin register_no').lean();
   const examMap = new Map(exams.map((e) => [e._id.toString(), e]));
   const rows = assignments
     .filter((a) => a.student && (req.isSuperAdmin || (a.student.managing_admin && a.student.managing_admin.toString() === req.user.id)))
@@ -914,13 +936,15 @@ router.get('/reports/combined.pdf', asyncHandler(async (req, res) => {
     { $group: { _id: '$assignment', n: { $sum: 1 } } }
   ]);
   const cmap = new Map(counts.map((c) => [c._id.toString(), c.n]));
+  const outRows = await AssignmentOutput.find({ assignment: { $in: rows.map((r) => r._id) } }).lean();
+  const outMap = new Map(outRows.map((o) => [o.assignment.toString(), o]));
   const doc = newDoc();
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${safeName(prefix)}_all_submissions.pdf"`);
   doc.pipe(res);
   for (const a of rows) {
     a.exam = examMap.get(a.exam.toString());
-    addReport(doc, reportData(a, cmap.get(a._id.toString())));
+    addReport(doc, { ...reportData(a, cmap.get(a._id.toString())), output: outMap.get(a._id.toString()) || null });
   }
   doc.end();
 }));
@@ -955,7 +979,8 @@ async function buildTracker(req) {
 
   const assignments = await ExamAssignment.find({ exam: { $in: exams.map((e) => e._id) } })
     .select('exam student status started_at submitted_at last_seen_at score resume_extra_minutes')
-    .populate('student', 'username full_name section managing_admin').lean();
+    
+    .populate('student', 'username full_name section managing_admin register_no').lean();
   const visible = assignments.filter((a) => a.student &&
     (req.isSuperAdmin || (a.student.managing_admin && a.student.managing_admin.toString() === req.user.id)));
   const counts = await Violation.aggregate([
@@ -970,7 +995,8 @@ async function buildTracker(req) {
     let ends_at = null;
     if (a.status === 'in_progress' && a.started_at && limit) ends_at = new Date(new Date(a.started_at).getTime() + limit * 60000).toISOString();
     // Register number comes from the contest exam's instructions ("Reg. No.: ..."); the LMS keeps no separate field.
-    const reg_no = ex ? ((ex.instructions || '').match(/Reg\.?\s*No\.?:\s*([A-Za-z0-9]+)/i) || [])[1] || '' : '';
+    const instrReg = ex ? ((ex.instructions || '').match(/Reg\.?\s*No\.?:\s*([A-Za-z0-9]+)/i) || [])[1] || '' : '';
+    const reg_no = a.student.register_no || instrReg;
     const max_marks = ex ? resolveRubric(ex).total_marks : 40;
     return {
       assignment_id: a._id.toString(), exam_id: a.exam.toString(), reg_no, max_marks,
@@ -1013,6 +1039,53 @@ router.get('/tracker/namelist.pdf', asyncHandler(async (req, res) => {
   doc.pipe(res);
   addScoreList(doc, rows, { title: req.query.prefix || 'Contest', section: req.query.section || '' });
   doc.end();
+}));
+
+// ---------- Rendered-output screenshots for reports ----------
+// An admin's browser renders each student's page (scripts disabled) and uploads a JPEG; reports
+// then embed it. The server never runs student code.
+
+// Which submitted assignments (optionally just one) still need a fresh capture.
+router.get('/outputs/status', asyncHandler(async (req, res) => {
+  const filter = { status: 'submitted' };
+  if (req.query.assignment_id) {
+    filter._id = req.query.assignment_id;
+  } else {
+    const prefix = String(req.query.prefix || '').trim();
+    const examFilter = prefix ? { title: new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') } : {};
+    const exams = await Exam.find(examFilter).select('_id').lean();
+    filter.exam = { $in: exams.map((e) => e._id) };
+  }
+  const assignments = await ExamAssignment.find(filter).select('student submitted_at')
+    .populate('student', 'full_name managing_admin').lean();
+  const mine = assignments.filter((a) => a.student && (req.isSuperAdmin || (a.student.managing_admin && a.student.managing_admin.toString() === req.user.id)));
+  const outs = await AssignmentOutput.find({ assignment: { $in: mine.map((a) => a._id) } }).select('assignment for_submitted_at').lean();
+  const omap = new Map(outs.map((o) => [o.assignment.toString(), o]));
+  const same = (x, y) => (x ? new Date(x).getTime() : 0) === (y ? new Date(y).getTime() : 0);
+  const rows = mine.map((a) => {
+    const o = omap.get(a._id.toString());
+    return { assignment_id: a._id.toString(), full_name: a.student.full_name, needs_capture: !o || !same(o.for_submitted_at, a.submitted_at) };
+  });
+  res.json({ total: rows.length, needs: rows.filter((r) => r.needs_capture).length, rows: rows.filter((r) => r.needs_capture) });
+}));
+
+const OUT_DATA_URL = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/;
+router.put('/assignments/:id/output', asyncHandler(async (req, res) => {
+  const a = await loadOwnedAssignment(req, res);
+  if (!a) return;
+  const fresh = await ExamAssignment.findById(a._id).select('submitted_at status').lean();
+  const m = OUT_DATA_URL.exec(String((req.body && req.body.image) || ''));
+  if (!m) return res.status(400).json({ error: 'image must be a JPEG data URL' });
+  const buf = Buffer.from(m[2], 'base64');
+  if (!buf.length || buf.length > 3 * 1024 * 1024) return res.status(400).json({ error: 'Output image is empty or larger than 3 MB' });
+  const width = Math.min(parseInt(req.body.width, 10) || 0, 5000);
+  const height = Math.min(parseInt(req.body.height, 10) || 0, 20000);
+  await AssignmentOutput.updateOne(
+    { assignment: a._id },
+    { $set: { mime: 'image/jpeg', data: buf, width, height, truncated: !!req.body.truncated, for_submitted_at: fresh ? fresh.submitted_at : null, captured_at: new Date() } },
+    { upsert: true }
+  );
+  res.json({ ok: true });
 }));
 
 module.exports = router;
