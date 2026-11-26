@@ -196,6 +196,8 @@ function outputPages(doc, d) {
   // two report pages (a full-size 2400px capture would otherwise need four).
   const bottom = doc.page.height - M - 12;
   const perPage = bottom - y;                       // usable height on a page below the letterhead
+  // Mongo (lean) hands back a BSON Binary, not a Node Buffer; pdfkit needs a Buffer.
+  const imgBuf = Buffer.isBuffer(o.data) ? o.data : Buffer.from((o.data && (o.data.buffer || o.data)) || []);
   const scale = Math.min(W / o.width, (2 * perPage - 6) / o.height);
   const drawW = o.width * scale;
   const x0 = M + (W - drawW) / 2;                   // centred when shrunk
@@ -207,7 +209,7 @@ function outputPages(doc, d) {
     const sliceH = Math.min(avail, totalH - shown);
     doc.save();
     doc.rect(x0, y, drawW, sliceH).clip();
-    doc.image(o.data, x0, y - shown, { width: drawW });
+    doc.image(imgBuf, x0, y - shown, { width: drawW });
     doc.restore();
     doc.rect(x0, y, drawW, sliceH).lineWidth(0.6).strokeColor('#999').stroke();
     shown += sliceH;
@@ -266,7 +268,11 @@ function addReport(doc, d) {
   const ev = evaluate(d.exam, d.test_results);
   frontPage(doc, d, ev);
   evaluationPage(doc, d, ev);
-  outputPages(doc, d);
+  try { outputPages(doc, d); } catch (e) {
+    console.error('output page failed:', e.message);
+    doc.addPage(); letterhead(doc, 'Output (rendered web page)');
+    doc.font('Times-Italic').fontSize(11).fillColor('#555').text('Output screenshot could not be embedded for this submission.', M, doc.y + 6);
+  }
   codePages(doc, d);
 }
 
