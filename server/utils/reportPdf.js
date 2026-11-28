@@ -99,7 +99,7 @@ function frontPage(doc, d, ev) {
   const rows = [
     [{ text: 'Department', w: L, font: b }, { text: COURSE.department, w: W - L }],
     [{ text: 'Programme:', w: L, font: b }, { text: COURSE.programme, w: W * 0.28 }, { text: 'Semester:', w: W * 0.14, font: b }, { text: COURSE.semester, w: W * 0.12 }, { text: 'AY:', w: W * 0.08, font: b }, { text: COURSE.ay, w: W - L - W * 0.62 }],
-    [{ text: 'Faculty Handling:', w: L, font: b }, { text: COURSE.faculty, w: W - L }],
+    [{ text: 'Faculty Handling:', w: L, font: b }, { text: d.faculty || COURSE.faculty, w: W - L }],
     [{ text: 'Course Code & Title:', w: L, font: b }, { text: COURSE.course, w: W - L }],
     [{ text: 'Assessment Task:', w: L, font: b }, { text: 'Individual Contest – Digital Brochure Design (Easy)', w: W * 0.30 }, { text: 'Assessment Type:', w: W * 0.13, font: b }, { text: 'Term Work / Individual', w: W * 0.16 }, { text: 'Required Time:', w: W * 0.11, font: b }, { text: `${d.exam.time_limit_minutes || 45} Minutes`, w: W * 0.10 }],
     [{ text: 'Presentation Format:', w: L, font: b }, { text: 'Proctored online submission in the HTML LMS (HTML + CSS), auto-graded', w: W - L }],

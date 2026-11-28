@@ -1071,6 +1071,8 @@
       tr.innerHTML = `
         <td>${escapeHtml(a.full_name)}</td>
         <td>${escapeHtml(a.username)}</td>
+        <td>${a.report_name ? escapeHtml(a.report_name) : '<span class="muted">(uses name)</span>'}
+          ${a.is_super_admin ? '' : `<button class="secondary edit-report-name" data-id="${a.id}" data-name="${escapeHtml(a.report_name || a.full_name)}" style="padding:2px 8px; margin-left:6px;">Edit</button>`}</td>
         <td>${statusBadge}</td>
         <td class="muted">${escapeHtml((a.created_at || '').slice(0,16))}</td>
         <td>${actions}</td>
@@ -1078,6 +1080,15 @@
       tbody.appendChild(tr);
     }
 
+    tbody.querySelectorAll('.edit-report-name').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const v = prompt('Faculty name as printed on PDF reports ("Faculty Handling"), e.g. Mr. A. Sendhooran, AP/CSE', btn.dataset.name);
+        if (v === null) return;
+        try { await api(`/api/admin/admins/${btn.dataset.id}/report-name`, { method: 'PUT', body: JSON.stringify({ report_name: v }) }); }
+        catch (e) { alert(e.message); return; }
+        await loadAdmins();
+      });
+    });
     tbody.querySelectorAll('.approve-admin').forEach((btn) => {
       btn.addEventListener('click', async () => {
         await api(`/api/admin/admins/${btn.dataset.id}/approve`, { method: 'POST' });

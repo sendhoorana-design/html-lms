@@ -389,3 +389,7 @@ Students have an optional `register_no` (e.g. 814726104001). It is shown and sea
 ## Output screenshot in PDF reports
 
 Each report now has an **Output (rendered web page)** page between the evaluation and the code. The page is rendered in the *admin's browser* (hidden iframe with scripts disabled, then screenshotted) and uploaded, so the server never runs student code. It happens automatically when you click **PDF** (per student) or **Download all submissions (PDF)**: any submitted student without an up-to-date screenshot is captured first (about 2-3 s each), re-submissions are detected and re-captured. Untick "include rendered output" to skip. Long pages are capped at 2400 px tall and shrunk to fit at most two report pages. Static HTML/CSS is rendered faithfully; JavaScript-driven content is not (scripts are not run), and external images that block cross-site loading may be missing.
+
+## Faculty on reports
+
+The report's "Faculty Handling" line shows the faculty each student is assigned to (Students tab → managing admin). Set how a faculty name prints under **Admin Requests → Name on reports → Edit** (e.g. `Mr. A. Sendhooran, AP/CSE`); blank uses the account's full name. Students with no assigned faculty fall back to the default line in `server/utils/reportPdf.js`.

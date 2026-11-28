@@ -11,6 +11,9 @@ const userSchema = new mongoose.Schema({
   // College register number (e.g. 814726104001) — students only. Shown and searchable in the admin
   // portal and printed on reports; a student may also log in with it instead of their username.
   register_no: { type: String, default: '', trim: true, index: true },
+  // Admins only: how this faculty member's name appears on PDF reports for their students,
+  // e.g. "Mr. A. Sendhooran, AP/CSE". Blank = fall back to full_name.
+  report_name: { type: String, default: '', trim: true },
   // True right after a CSV import, or whenever an admin forces it — the student must set a new
   // password before they can do anything else.
   must_change_password: { type: Boolean, default: false },

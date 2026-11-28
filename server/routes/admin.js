@@ -262,10 +262,19 @@ router.get('/admins', requireSuperAdmin, asyncHandler(async (req, res) => {
     id: a._id.toString(),
     username: a.username,
     full_name: a.full_name,
+    report_name: a.report_name || '',
     is_super_admin: !!a.is_super_admin,
     admin_status: a.admin_status || 'approved',
     created_at: a.created_at
   })));
+}));
+
+// How a faculty member's name is printed on reports ("Faculty Handling").
+router.put('/admins/:id/report-name', requireSuperAdmin, asyncHandler(async (req, res) => {
+  const name = String((req.body && req.body.report_name) || '').trim().slice(0, 120);
+  const result = await User.updateOne({ _id: req.params.id, role: 'admin' }, { $set: { report_name: name } });
+  if (result.matchedCount === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, report_name: name });
 }));
 
 router.post('/admins/:id/approve', requireSuperAdmin, asyncHandler(async (req, res) => {
@@ -889,9 +898,21 @@ function reportData(a, violationCount) {
     score: typeof a.score === 'number' ? a.score : null,
     test_results: a.test_results || [],
     files: (a.files || []).map((f) => ({ name: f.name, content: f.content })),
-    code: a.code || ''
+    code: a.code || '',
+    faculty: null
   };
 }
+
+// "Faculty Handling" for each student = the faculty the main admin assigned them to (their
+// managing admin): that admin's report_name, else their full name. Students with nobody assigned
+// get null, and the report falls back to its default faculty line.
+async function facultyNames(students) {
+  const ids = [...new Set(students.map((s) => s && s.managing_admin).filter(Boolean).map((x) => x.toString()))];
+  if (!ids.length) return new Map();
+  const admins = await User.find({ _id: { $in: ids } }).select('full_name report_name').lean();
+  return new Map(admins.map((a) => [a._id.toString(), a.report_name || a.full_name || '']));
+}
+const facultyFor = (map, student) => (student && student.managing_admin && map.get(student.managing_admin.toString())) || null;
 
 const safeName = (s) => String(s || 'report').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80);
 
@@ -907,11 +928,12 @@ router.get('/assignments/:id/report.pdf', asyncHandler(async (req, res) => {
   }
   const vCount = await Violation.countDocuments({ assignment: a._id });
   const out = await AssignmentOutput.findOne({ assignment: a._id }).lean();
+  const fmap = await facultyNames([a.student]);
   const doc = newDoc();
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${safeName(a.student.full_name)}_${safeName(a.exam.title)}.pdf"`);
   doc.pipe(res);
-  addReport(doc, { ...reportData(a, vCount), output: out || null });
+  addReport(doc, { ...reportData(a, vCount), output: out || null, faculty: facultyFor(fmap, a.student) });
   doc.end();
 }));
 
@@ -938,13 +960,14 @@ router.get('/reports/combined.pdf', asyncHandler(async (req, res) => {
   const cmap = new Map(counts.map((c) => [c._id.toString(), c.n]));
   const outRows = await AssignmentOutput.find({ assignment: { $in: rows.map((r) => r._id) } }).lean();
   const outMap = new Map(outRows.map((o) => [o.assignment.toString(), o]));
+  const fmap = await facultyNames(rows.map((r) => r.student));
   const doc = newDoc();
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${safeName(prefix)}_all_submissions.pdf"`);
   doc.pipe(res);
   for (const a of rows) {
     a.exam = examMap.get(a.exam.toString());
-    addReport(doc, { ...reportData(a, cmap.get(a._id.toString())), output: outMap.get(a._id.toString()) || null });
+    addReport(doc, { ...reportData(a, cmap.get(a._id.toString())), output: outMap.get(a._id.toString()) || null, faculty: facultyFor(fmap, a.student) });
   }
   doc.end();
 }));
